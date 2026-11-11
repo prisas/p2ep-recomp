@@ -1,0 +1,44 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-cl",
+                "CMAKE_CXX_COMPILER": "clang-cl",
+                "CMAKE_LINKER_TYPE": "LLD"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "inherits": "base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "release-lto",
+            "displayName": "Release with ThinLTO",
+            "inherits": "release",
+            "cacheVariables": { "P2EP_LTO": "ON" }
+        },
+        {
+            "name": "dev",
+            "displayName": "Developer (optimised, symbols, extra checks)",
+            "inherits": "base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "P2EP_DEV": "ON" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "release", "configurePreset": "release" },
+        { "name": "release-lto", "configurePreset": "release-lto" },
+        { "name": "dev", "configurePreset": "dev" }
+    ],
+    "testPresets": [
+        { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+        { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }
+    ]
+}

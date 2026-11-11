@@ -1,0 +1,28 @@
+# Game data: never commit disc images or anything extracted from them.
+*.chd
+*.iso
+*.cso
+*.pbp
+/extracted/
+/generated/
+
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+CMakeUserPresets.json
+compile_commands.json
+
+# Local runs
+/frames/
+/userdata/
+*.log
+*.pdb
+*.ilk
+
+# Editors and tooling
+.vs/
+.vscode/
+.idea/
+.claude/
+*.swp
