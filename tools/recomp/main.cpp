@@ -3,9 +3,11 @@
 #include "lib/common/log.h"
 #include "lib/psp/nid.h"
 #include "tools/recomp/game.h"
+#include "tools/recomp/generate.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -47,7 +49,12 @@ int usage() {
               "  p2recomp info <image> [--api <dir>] [--files] [--sections] [--imports] [--census]\n"
               "      Describe the disc image and its executable.\n"
               "  p2recomp extract <image> <path-in-image> <output-file>\n"
-              "      Copy one file out of the image.\n");
+              "      Copy one file out of the image.\n"
+              "  p2recomp disasm <image> <hex-address> [count]\n"
+              "      Disassemble part of the relocated executable.\n"
+              "  p2recomp gen --image <image> --out <dir> --api <dir> [--shards N] [--entries <file>]\n"
+              "               [--stamp <file>] [--no-comments] [--allow-unknown] [--keep-going]\n"
+              "      Translate the executable to C++.\n");
     return 2;
 }
 
@@ -141,6 +148,126 @@ int cmd_info(const Args& args) {
     return 0;
 }
 
+int cmd_gen(const Args& args) {
+    if (!args.has("image") || !args.has("out") || !args.has("api")) return usage();
+    recomp::Game game;
+    std::string error;
+    if (!game.load(args.get("image"), &error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+
+    const recomp::SupportedExecutable* supported = recomp::find_supported(game.executable_sha256);
+    if (!supported && !args.has("allow-unknown")) {
+        std::fprintf(stderr,
+                     "error: this executable is not a supported build.\n"
+                     "       sha256 %s\n"
+                     "       Pass --allow-unknown to translate it anyway; the result is untested.\n",
+                     game.executable_sha256.c_str());
+        return 1;
+    }
+
+    psp::NidTable nids;
+    if (!nids.load_dir(args.get("api"), &error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+
+    recomp::GenerateOptions options;
+    options.out_dir = args.get("out");
+    options.shards = u32(std::strtoul(args.get("shards", "96").c_str(), nullptr, 10));
+    options.comments = !args.has("no-comments");
+    if (args.has("entries")) {
+        std::string text;
+        if (!read_text_file(args.get("entries"), text)) {
+            std::fprintf(stderr, "error: cannot read %s\n", args.get("entries").c_str());
+            return 1;
+        }
+        // One hexadecimal address per line; '#' starts a comment.
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t end = text.find('\n', pos);
+            if (end == std::string::npos) end = text.size();
+            std::string entry = text.substr(pos, end - pos);
+            if (size_t hash = entry.find('#'); hash != std::string::npos) entry.resize(hash);
+            char* stop = nullptr;
+            unsigned long value = std::strtoul(entry.c_str(), &stop, 16);
+            if (stop != entry.c_str()) options.extra_entries.push_back(u32(value));
+            pos = end + 1;
+        }
+    }
+
+    recomp::GenerateSummary summary;
+    if (!recomp::generate(game.module, game.executable_sha256, nids, options, summary, &error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    std::printf("%s", summary.report.c_str());
+    std::printf("%zu file(s) written, %zu unchanged, in %s\n", summary.files_written, summary.files_unchanged,
+                options.out_dir.string().c_str());
+
+    if (!summary.unimplemented.empty() && !args.has("keep-going")) {
+        std::fprintf(stderr, "error: %zu instruction(s) could not be translated (see gen_report.txt)\n",
+                     summary.unimplemented.size());
+        return 1;
+    }
+    if (args.has("stamp")) {
+        std::string stamp = game.executable_sha256 + "\n";
+        if (!write_file(args.get("stamp"), stamp.data(), stamp.size())) {
+            std::fprintf(stderr, "error: cannot write %s\n", args.get("stamp").c_str());
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Disassembles a stretch of the relocated executable, marking relocated words with their targets.
+int cmd_disasm(const Args& args) {
+    if (args.positional.size() < 2) return usage();
+    recomp::Game game;
+    std::string error;
+    if (!game.load(args.positional[0], &error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    const psp::Module& m = game.module;
+    u32 addr = u32(std::strtoul(args.positional[1].c_str(), nullptr, 16)) & ~3u;
+    u32 count = args.positional.size() > 2 ? u32(std::strtoul(args.positional[2].c_str(), nullptr, 0)) : 24;
+    for (u32 k = 0; k < count; ++k, addr += 4) {
+        if (!m.contains(addr, 4)) break;
+        u32 word = m.read32(addr);
+        std::string text = m.is_code(addr) ? allegrex::disassemble(addr, word) : format(".word 0x%08x", word);
+        const psp::Reloc* r = m.reloc_at(addr);
+        if (r && r->target) std::printf("%08X  %08X  %-36s -> %08X\n", addr, word, text.c_str(), r->target);
+        else std::printf("%08X  %08X  %s\n", addr, word, text.c_str());
+    }
+    return 0;
+}
+
+// Lists every relocated word or instruction that refers to an address.
+int cmd_refs(const Args& args) {
+    if (args.positional.size() < 2) return usage();
+    recomp::Game game;
+    std::string error;
+    if (!game.load(args.positional[0], &error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    const psp::Module& m = game.module;
+    u32 target = u32(std::strtoul(args.positional[1].c_str(), nullptr, 16));
+    static const char* const kinds[] = {"word", "jump", "hi16", "lo16", "abs16", "gprel"};
+    size_t shown = 0;
+    for (const psp::Reloc& r : m.relocs) {
+        if (r.target != target) continue;
+        u32 word = m.read32(r.addr);
+        std::printf("%08X  %-5s %s\n", r.addr, kinds[size_t(r.kind)],
+                    m.is_code(r.addr) ? allegrex::disassemble(r.addr, word).c_str() : "(data)");
+        if (++shown >= 64) break;
+    }
+    if (!shown) std::puts("no references");
+    return 0;
+}
+
 int cmd_extract(const Args& args) {
     if (args.positional.size() < 3) return usage();
     std::string error;
@@ -170,5 +297,8 @@ int main(int argc, char** argv) {
     std::string command = argv[1];
     if (command == "info") return cmd_info(parse_args(argc, argv, 2, {"files", "sections", "imports", "census"}));
     if (command == "extract") return cmd_extract(parse_args(argc, argv, 2, {}));
+    if (command == "disasm") return cmd_disasm(parse_args(argc, argv, 2, {}));
+    if (command == "refs") return cmd_refs(parse_args(argc, argv, 2, {}));
+    if (command == "gen") return cmd_gen(parse_args(argc, argv, 2, {"allow-unknown", "no-comments", "keep-going"}));
     return usage();
 }
