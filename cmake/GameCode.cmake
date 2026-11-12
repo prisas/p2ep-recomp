@@ -32,6 +32,12 @@ function(p2ep_add_game_code target)
         set(entries_deps "${entries_file}")
     endif()
 
+    set(blobs_file "${CMAKE_SOURCE_DIR}/data/code_blobs.txt")
+    if(EXISTS "${blobs_file}")
+        list(APPEND entries_args --blobs "${blobs_file}")
+        list(APPEND entries_deps "${blobs_file}")
+    endif()
+
     # The tool rewrites only the files whose content changed, so an unchanged shard is not recompiled.
     add_custom_command(
         OUTPUT "${gen_dir}/gen.stamp"

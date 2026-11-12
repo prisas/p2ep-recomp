@@ -10,16 +10,19 @@ namespace p2::recomp {
 using allegrex::Insn;
 using allegrex::Op;
 
-bool Input::in_code(u32 addr) const {
-    for (const CodeRange& r : code)
-        if (r.contains(addr)) return true;
-    return false;
+// The ranges are sorted and disjoint: find the last one starting at or below the address.
+static const CodeRange* range_of(const std::vector<CodeRange>& code, u32 addr) {
+    auto it = std::upper_bound(code.begin(), code.end(), addr, [](u32 a, const CodeRange& r) { return a < r.start; });
+    if (it == code.begin()) return nullptr;
+    --it;
+    return it->contains(addr) ? &*it : nullptr;
 }
 
+bool Input::in_code(u32 addr) const { return range_of(code, addr) != nullptr; }
+
 u32 Input::range_end(u32 addr) const {
-    for (const CodeRange& r : code)
-        if (r.contains(addr)) return r.end;
-    return 0;
+    const CodeRange* r = range_of(code, addr);
+    return r ? r->end : 0;
 }
 
 namespace {

@@ -18,14 +18,23 @@ struct SupportedExecutable {
 
 const SupportedExecutable* find_supported(const std::string& sha256);
 
+// A file the game loads at a fixed address and then executes code from. Its contents are laid over
+// the executable's memory image before analysis so that code is translated too.
+struct CodeBlob {
+    std::string name;
+    u32 addr = 0;
+    std::vector<u8> data;
+};
+
 // Translates a loaded executable into the analyser's input description.
-Input make_input(const psp::Module& module, const psp::NidTable& nids);
+Input make_input(const psp::Module& module, const psp::NidTable& nids, const std::vector<CodeBlob>& blobs = {});
 
 struct GenerateOptions {
     std::filesystem::path out_dir;
     u32 shards = 96;
     bool comments = true;
     std::vector<u32> extra_entries;
+    std::vector<CodeBlob> blobs;
 };
 
 struct GenerateSummary {

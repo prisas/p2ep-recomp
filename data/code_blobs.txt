@@ -1,0 +1,3 @@
+# Files the game loads at a fixed address and runs code from.
+# <path inside the disc image> <hexadecimal load address>
+PSP_GAME/USRDIR/ENG.BIN 08F43710

@@ -53,7 +53,7 @@ int usage() {
               "  p2recomp disasm <image> <hex-address> [count]\n"
               "      Disassemble part of the relocated executable.\n"
               "  p2recomp gen --image <image> --out <dir> --api <dir> [--shards N] [--entries <file>]\n"
-              "               [--stamp <file>] [--no-comments] [--allow-unknown] [--keep-going]\n"
+              "               [--blobs <file>] [--stamp <file>] [--no-comments] [--allow-unknown] [--keep-going]\n"
               "      Translate the executable to C++.\n");
     return 2;
 }
@@ -194,6 +194,34 @@ int cmd_gen(const Args& args) {
             unsigned long value = std::strtoul(entry.c_str(), &stop, 16);
             if (stop != entry.c_str()) options.extra_entries.push_back(u32(value));
             pos = end + 1;
+        }
+    }
+
+    if (args.has("blobs")) {
+        std::string text;
+        if (!read_text_file(args.get("blobs"), text)) {
+            std::fprintf(stderr, "error: cannot read %s\n", args.get("blobs").c_str());
+            return 1;
+        }
+        // "<path inside the image> <hexadecimal load address>" per line; '#' starts a comment.
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t end = text.find('\n', pos);
+            if (end == std::string::npos) end = text.size();
+            std::string line = text.substr(pos, end - pos);
+            pos = end + 1;
+            if (size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+            char path[256];
+            unsigned addr = 0;
+            if (std::sscanf(line.c_str(), "%255s %x", path, &addr) != 2) continue;
+            recomp::CodeBlob blob;
+            blob.name = path;
+            blob.addr = addr;
+            if (!game.fs.read_all(path, blob.data)) {
+                std::fprintf(stderr, "error: '%s' (listed in %s) is not in the image\n", path, args.get("blobs").c_str());
+                return 1;
+            }
+            options.blobs.push_back(std::move(blob));
         }
     }
 
