@@ -157,7 +157,10 @@ P2_INLINE u32 f_vd(u32 w) { return w & 127; }
 P2_INLINE u32 f_vs(u32 w) { return (w >> 8) & 127; }
 P2_INLINE u32 f_vt(u32 w) { return (w >> 16) & 127; }
 P2_INLINE u32 f_size(u32 w) { return ((w >> 7) & 1) | (((w >> 15) & 1) << 1); }
+// Single loads/stores take two low bits of the word as the top of the register number. Quad
+// loads/stores take only bit 0; bit 1 is the cache write-back flag of sv.q and not part of it.
 P2_INLINE u32 f_mem_reg(u32 w) { return ((w >> 16) & 31) | ((w & 3) << 5); }
+P2_INLINE u32 f_mem_reg_quad(u32 w) { return ((w >> 16) & 31) | ((w & 1) << 5); }
 
 // --- math helpers -------------------------------------------------------------------------------------------
 
@@ -214,12 +217,12 @@ P2_INLINE void sv_s(const Cpu* c, u8* m, u32 w, u32 addr) { wr32(m, addr, c->vi[
 P2_INLINE void lv_q(Cpu* c, const u8* m, u32 w, u32 addr) {
     Vec v;
     for (u32 i = 0; i < 4; ++i) v.u[i] = rd32(m, addr + i * 4);
-    write_vec(c, v, 3, f_mem_reg(w));
+    write_vec(c, v, 3, f_mem_reg_quad(w));
 }
 
 P2_INLINE void sv_q(const Cpu* c, u8* m, u32 w, u32 addr) {
     Vec v;
-    read_vec(c, v, 3, f_mem_reg(w));
+    read_vec(c, v, 3, f_mem_reg_quad(w));
     for (u32 i = 0; i < 4; ++i) wr32(m, addr + i * 4, v.u[i]);
 }
 

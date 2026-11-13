@@ -24,7 +24,8 @@ const SupportedExecutable* find_supported(const std::string& sha256) {
     return nullptr;
 }
 
-Input make_input(const psp::Module& module, const psp::NidTable& nids, const std::vector<CodeBlob>& blobs) {
+Input make_input(const psp::Module& module, const psp::NidTable& nids, const std::vector<CodeBlob>& blobs,
+                 const std::vector<u32>& extra_entries) {
     Input in;
     in.base = module.base;
     in.image = module.image;
@@ -82,7 +83,34 @@ Input make_input(const psp::Module& module, const psp::NidTable& nids, const std
                 }
             }
         }
+        // Patch routines are also reached through pointers stored in data, which carry no
+        // relocation. A word that holds the address of a stack-frame prologue outside the code
+        // sections is taken to be such a pointer.
+        auto is_prologue = [&](u32 addr) {
+            if (!file_backed_data(addr)) return false;
+            u32 w = in.word(addr);
+            return (w & 0xFFFF8000u) == 0x27BD8000u; // addiu sp, sp, -N
+        };
+        std::vector<u32> pointer_seeds;
+        auto scan_pointers = [&](u32 start, u32 end) {
+            for (u32 a = align_up<u32>(start, 4); a + 4 <= end; a += 4) {
+                u32 value = in.word(a);
+                if (value >= in.base && is_prologue(value)) {
+                    work.push_back(value);
+                    pointer_seeds.push_back(value);
+                }
+            }
+        };
+        for (const psp::Section& s : module.sections)
+            if (s.alloc() && !s.exec() && s.type != 8 && s.size >= 4) scan_pointers(s.addr, s.addr + s.size);
+        for (const CodeBlob& blob : blobs)
+            if (in.in_image(blob.addr, u32(blob.data.size()))) scan_pointers(blob.addr, blob.addr + u32(blob.data.size()));
+        for (u32 entry : extra_entries)
+            if (file_backed_data(entry)) work.push_back(entry);
+
         std::set<u32> reached;
+        for (bool grew = true; grew;) {
+        grew = false;
         while (!work.empty()) {
             u32 pc = work.back();
             work.pop_back();
@@ -115,6 +143,19 @@ Input make_input(const psp::Module& module, const psp::NidTable& nids, const std
                 pc += 8;
             }
         }
+        // Patch routines are laid out back to back. A prologue that directly follows the return
+        // of a discovered routine starts another one, even if nothing visible refers to it.
+        for (u32 addr : reached) {
+            u32 next = addr + 4;
+            if (reached.count(next) || !is_prologue(next)) continue;
+            if (!in.in_image(next - 8) || in.word(next - 8) != 0x03E00008u) continue; // jr ra, then its delay slot
+            work.push_back(next);
+            pointer_seeds.push_back(next);
+            grew = true;
+        }
+        }
+        for (u32 seed : pointer_seeds)
+            if (reached.count(seed)) in.entries.push_back(seed);
         for (auto it = reached.begin(); it != reached.end();) {
             u32 start = *it, end = start + 4;
             for (++it; it != reached.end() && *it == end; ++it) end += 4;
@@ -141,7 +182,7 @@ Input make_input(const psp::Module& module, const psp::NidTable& nids, const std
 
 bool generate(const psp::Module& module, const std::string& sha256, const psp::NidTable& nids,
               const GenerateOptions& options, GenerateSummary& summary, std::string* error) {
-    Input input = make_input(module, nids, options.blobs);
+    Input input = make_input(module, nids, options.blobs, options.extra_entries);
     if (input.code.empty()) {
         if (error) *error = "the executable has no section headers describing its code";
         return false;

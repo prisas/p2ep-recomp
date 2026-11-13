@@ -3,38 +3,9 @@
 // up empty.
 
 #include "runtime/hle/hle.h"
-#include "runtime/hle/hle_display.h"
 
 using namespace p2;
 using namespace p2::kernel;
-
-// --- sceCtrl ---
-HLE_STUB(sceCtrlSetSamplingCycle, 0)
-HLE_STUB(sceCtrlSetSamplingMode, 0)
-HLE_STUB(sceCtrlSetIdleCancelThreshold, 0)
-HLE(sceCtrlReadBufferPositive) {
-    u32 out = ARG(0);
-    hle::wait_for_vblank();
-    if (mem::valid(out, 16)) {
-        mem::w32(out + 0, u32(now_us()));
-        mem::w32(out + 4, 0);
-        mem::w8(out + 8, 128);
-        mem::w8(out + 9, 128);
-    }
-    RET(1);
-}
-
-// --- sceGe_user ---
-HLE_STUB(sceGeEdramGetAddr, 0x04000000)
-HLE_STUB(sceGeSetCallback, 1)
-HLE_STUB(sceGeUnsetCallback, 0)
-HLE_STUB(sceGeListEnQueue, 1)
-HLE_STUB(sceGeListEnQueueHead, 1)
-HLE_STUB(sceGeListUpdateStallAddr, 0)
-HLE_STUB(sceGeListSync, 0)
-HLE_STUB(sceGeDrawSync, 0)
-HLE_STUB(sceGeBreak, 0)
-HLE_STUB(sceGeContinue, 0)
 
 // --- sceAudio ---
 HLE_STUB(sceAudioChReserve, 0)

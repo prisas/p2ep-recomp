@@ -4,13 +4,18 @@
 #include "lib/psp/prx.h"
 #include "runtime/cpu/recomp.h"
 #include "runtime/cpu/rt.h"
+#include "runtime/ge/ge.h"
+#include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
+#include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
+#include "runtime/platform/window.h"
 
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -23,17 +28,20 @@ namespace {
 constexpr const char* kExecutablePath = "PSP_GAME/SYSDIR/EBOOT.BIN";
 constexpr u32 kMinRootStack = 0x40000;
 
-u64 g_frames = 0;
+std::unique_ptr<ge::Renderer> g_renderer;
 
 int usage() {
     std::puts("usage: p2ep <disc-image> [options]\n"
               "\n"
               "  --user-dir <dir>      where saves and settings are kept (default: ./userdata)\n"
+              "  --scale <n>           internal resolution multiplier, 1-10 (default 1)\n"
               "  --headless            run without a window or audio device\n"
               "  --unthrottled         do not pace the game to real time\n"
               "  --frames <n>          quit after n displayed frames\n"
               "  --dump-frames <dir>   write displayed frames as PNG files\n"
               "  --dump-every <n>      ... every nth frame (default 60)\n"
+              "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,...\n"
+              "  --no-gpu              do not create a renderer (system-call testing only)\n"
               "  --log <channels>      comma-separated trace channels: hle,io,thread,mem,display,ge,audio,all\n"
               "  --log-file <path>     also write the log to a file\n"
               "  --verbose             include debug messages");
@@ -50,12 +58,6 @@ LONG CALLBACK fault_handler(EXCEPTION_POINTERS* info) {
     if (mem::host_to_guest(address, &guest))
         P2_FATAL("the game tried to %s unmapped guest address %08x", kind, guest);
     P2_FATAL("host access violation: %s %p (code at %p)", kind, address, rec->ExceptionAddress);
-}
-
-void frame_hook() {
-    ++g_frames;
-    const host::Options& opt = host::options();
-    if (opt.frame_limit && g_frames >= opt.frame_limit) kernel::request_stop(0);
 }
 
 bool boot(std::string* error) {
@@ -118,7 +120,7 @@ bool boot(std::string* error) {
     }
     LOG_INFO("boot", "module '%s' at %08x-%08x, entry %08x, gp %08x", module.name.c_str(), module.base, module.end,
              g_gen_module.entry, module.gp);
-    hle::display_init(frame_hook);
+    hle::display_init(host::on_frame);
     kernel::start_thread(root, u32(path.size()) + 1, arg);
     return true;
 }
@@ -130,17 +132,22 @@ int main(int argc, char** argv) {
     opt.user_dir = "userdata";
     opt.dump_every = 60;
     std::string channels, log_file;
-    bool verbose = false;
+    bool verbose = false, no_gpu = false;
+    u32 scale = 1;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto value = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
         if (a == "--user-dir") opt.user_dir = value();
+        else if (a == "--scale") scale = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--headless") opt.headless = true;
         else if (a == "--unthrottled") opt.unthrottled = true;
         else if (a == "--frames") opt.frame_limit = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-frames") opt.dump_dir = value();
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
+        else if (a == "--dump-textures") opt.texture_dump_dir = value();
+        else if (a == "--input") host::set_input_script(value());
+        else if (a == "--no-gpu") no_gpu = true;
         else if (a == "--log") channels = value();
         else if (a == "--log-file") log_file = value();
         else if (a == "--verbose") verbose = true;
@@ -160,13 +167,34 @@ int main(int argc, char** argv) {
     AddVectoredExceptionHandler(1, fault_handler);
 
     std::string error;
-    if (!mem::init(&error) || !boot(&error)) {
+    if (!mem::init(&error) || !host::window_init(&error)) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    if (!no_gpu) {
+        gfx::RendererOptions renderer_options;
+        renderer_options.sdl_window = host::window_handle();
+        renderer_options.scale = scale;
+        renderer_options.vsync = !opt.unthrottled;
+        g_renderer = gfx::create_vulkan_renderer(renderer_options, &error);
+        if (!g_renderer) {
+            std::fprintf(stderr, "error: %s\n", error.c_str());
+            return 1;
+        }
+    }
+    ge::init(g_renderer.get());
+    if (!boot(&error)) {
         std::fprintf(stderr, "error: %s\n", error.c_str());
         return 1;
     }
 
     kernel::run();
-    LOG_INFO("boot", "stopped after %llu frame(s), %.2f s of game time", static_cast<unsigned long long>(g_frames),
-             double(kernel::now_us()) / 1e6);
+    const ge::Stats& gs = ge::stats();
+    LOG_INFO("boot", "stopped after %llu frame(s), %.2f s of game time; %llu display lists, %llu draws, %llu vertices",
+             static_cast<unsigned long long>(host::frames_shown()), double(kernel::now_us()) / 1e6,
+             static_cast<unsigned long long>(gs.lists), static_cast<unsigned long long>(gs.draws),
+             static_cast<unsigned long long>(gs.vertices));
+    g_renderer.reset();
+    host::window_shutdown();
     return kernel::exit_code();
 }

@@ -27,7 +27,8 @@ struct CodeBlob {
 };
 
 // Translates a loaded executable into the analyser's input description.
-Input make_input(const psp::Module& module, const psp::NidTable& nids, const std::vector<CodeBlob>& blobs = {});
+Input make_input(const psp::Module& module, const psp::NidTable& nids, const std::vector<CodeBlob>& blobs = {},
+                 const std::vector<u32>& extra_entries = {});
 
 struct GenerateOptions {
     std::filesystem::path out_dir;

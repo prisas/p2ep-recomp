@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -50,12 +51,42 @@ int usage() {
               "      Describe the disc image and its executable.\n"
               "  p2recomp extract <image> <path-in-image> <output-file>\n"
               "      Copy one file out of the image.\n"
-              "  p2recomp disasm <image> <hex-address> [count]\n"
+              "  p2recomp disasm <image> <hex-address> [count] [--code] [--blobs <file>]\n"
               "      Disassemble part of the relocated executable.\n"
               "  p2recomp gen --image <image> --out <dir> --api <dir> [--shards N] [--entries <file>]\n"
               "               [--blobs <file>] [--stamp <file>] [--no-comments] [--allow-unknown] [--keep-going]\n"
               "      Translate the executable to C++.\n");
     return 2;
+}
+
+// Reads the code-blob list ("<path inside the image> <hexadecimal load address>" per line).
+bool load_blobs(const Args& args, recomp::Game& game, std::vector<recomp::CodeBlob>& blobs) {
+    if (!args.has("blobs")) return true;
+    std::string text;
+    if (!read_text_file(args.get("blobs"), text)) {
+        std::fprintf(stderr, "error: cannot read %s\n", args.get("blobs").c_str());
+        return false;
+    }
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        if (size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+        char path[256];
+        unsigned addr = 0;
+        if (std::sscanf(line.c_str(), "%255s %x", path, &addr) != 2) continue;
+        recomp::CodeBlob blob;
+        blob.name = path;
+        blob.addr = addr;
+        if (!game.fs.read_all(path, blob.data)) {
+            std::fprintf(stderr, "error: '%s' (listed in %s) is not in the image\n", path, args.get("blobs").c_str());
+            return false;
+        }
+        blobs.push_back(std::move(blob));
+    }
+    return true;
 }
 
 int cmd_info(const Args& args) {
@@ -197,33 +228,7 @@ int cmd_gen(const Args& args) {
         }
     }
 
-    if (args.has("blobs")) {
-        std::string text;
-        if (!read_text_file(args.get("blobs"), text)) {
-            std::fprintf(stderr, "error: cannot read %s\n", args.get("blobs").c_str());
-            return 1;
-        }
-        // "<path inside the image> <hexadecimal load address>" per line; '#' starts a comment.
-        size_t pos = 0;
-        while (pos < text.size()) {
-            size_t end = text.find('\n', pos);
-            if (end == std::string::npos) end = text.size();
-            std::string line = text.substr(pos, end - pos);
-            pos = end + 1;
-            if (size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
-            char path[256];
-            unsigned addr = 0;
-            if (std::sscanf(line.c_str(), "%255s %x", path, &addr) != 2) continue;
-            recomp::CodeBlob blob;
-            blob.name = path;
-            blob.addr = addr;
-            if (!game.fs.read_all(path, blob.data)) {
-                std::fprintf(stderr, "error: '%s' (listed in %s) is not in the image\n", path, args.get("blobs").c_str());
-                return 1;
-            }
-            options.blobs.push_back(std::move(blob));
-        }
-    }
+    if (!load_blobs(args, game, options.blobs)) return 1;
 
     recomp::GenerateSummary summary;
     if (!recomp::generate(game.module, game.executable_sha256, nids, options, summary, &error)) {
@@ -258,13 +263,19 @@ int cmd_disasm(const Args& args) {
         std::fprintf(stderr, "error: %s\n", error.c_str());
         return 1;
     }
-    const psp::Module& m = game.module;
+    std::vector<recomp::CodeBlob> blobs;
+    if (!load_blobs(args, game, blobs)) return 1;
+    psp::Module& m = game.module;
+    for (const recomp::CodeBlob& blob : blobs)
+        if (m.contains(blob.addr, u32(blob.data.size())))
+            std::memcpy(m.image.data() + (blob.addr - m.base), blob.data.data(), blob.data.size());
+    const bool force_code = args.has("code");
     u32 addr = u32(std::strtoul(args.positional[1].c_str(), nullptr, 16)) & ~3u;
     u32 count = args.positional.size() > 2 ? u32(std::strtoul(args.positional[2].c_str(), nullptr, 0)) : 24;
     for (u32 k = 0; k < count; ++k, addr += 4) {
         if (!m.contains(addr, 4)) break;
         u32 word = m.read32(addr);
-        std::string text = m.is_code(addr) ? allegrex::disassemble(addr, word) : format(".word 0x%08x", word);
+        std::string text = force_code || m.is_code(addr) ? allegrex::disassemble(addr, word) : format(".word 0x%08x", word);
         const psp::Reloc* r = m.reloc_at(addr);
         if (r && r->target) std::printf("%08X  %08X  %-36s -> %08X\n", addr, word, text.c_str(), r->target);
         else std::printf("%08X  %08X  %s\n", addr, word, text.c_str());
@@ -325,7 +336,7 @@ int main(int argc, char** argv) {
     std::string command = argv[1];
     if (command == "info") return cmd_info(parse_args(argc, argv, 2, {"files", "sections", "imports", "census"}));
     if (command == "extract") return cmd_extract(parse_args(argc, argv, 2, {}));
-    if (command == "disasm") return cmd_disasm(parse_args(argc, argv, 2, {}));
+    if (command == "disasm") return cmd_disasm(parse_args(argc, argv, 2, {"code"}));
     if (command == "refs") return cmd_refs(parse_args(argc, argv, 2, {}));
     if (command == "gen") return cmd_gen(parse_args(argc, argv, 2, {"allow-unknown", "no-comments", "keep-going"}));
     return usage();

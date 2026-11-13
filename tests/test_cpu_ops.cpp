@@ -424,4 +424,12 @@ TEST(vfpu_rotation_and_memory) {
     CHECK_EQ(elem(f.cpu, 5, 2, 2), 3.5f);
     vfpu::sv_s(&f.cpu, f.mem, 0xE8000000 | mem_bits, 0);
     CHECK_EQ(load_le<f32>(f.mem), 1.5f);
+
+    // sv.q with the cache write-back flag (bit 1) must address the same register, in the same order.
+    set_quad(f.cpu, 0, 0, 10, 20, 30, 40);
+    vfpu::sv_q(&f.cpu, f.mem, 0xF8000002, 32);
+    CHECK_EQ(load_le<f32>(f.mem + 32), 10.0f);
+    CHECK_EQ(load_le<f32>(f.mem + 36), 20.0f);
+    CHECK_EQ(load_le<f32>(f.mem + 40), 30.0f);
+    CHECK_EQ(load_le<f32>(f.mem + 44), 40.0f);
 }
