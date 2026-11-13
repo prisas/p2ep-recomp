@@ -31,4 +31,7 @@ struct Stats {
 };
 Stats& stats();
 
+// While on, every draw and block transfer is written to the log with the state that shapes it.
+void set_draw_trace(bool on);
+
 } // namespace p2::ge

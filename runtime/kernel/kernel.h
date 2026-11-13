@@ -232,5 +232,7 @@ ModuleInfo& module();
 
 // Dumps threads and their guest call stacks to the log (used on fatal errors).
 void dump_state();
+// One line naming the running thread and, in development builds, its guest return addresses.
+std::string describe_current();
 
 } // namespace p2::kernel

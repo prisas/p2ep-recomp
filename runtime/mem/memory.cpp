@@ -88,6 +88,56 @@ void write_string(u32 addr, const std::string& text, u32 capacity) {
     g_base[addr + n] = 0;
 }
 
+namespace {
+
+u32 g_watch_addr = 0, g_watch_size = 0; // physical address; size 0: no watch
+bool g_watch_lifted = false;
+
+void protect_watch(DWORD protection) {
+    const u32 first = g_watch_addr & ~0xFFFu;
+    const u32 length = ((g_watch_addr + g_watch_size + 0xFFFu) & ~0xFFFu) - first;
+    for (u32 segment = 0; segment < 4; ++segment) {
+        DWORD old = 0;
+        VirtualProtect(g_base + ((segment << 30) | first), length, protection, &old);
+    }
+}
+
+} // namespace
+
+void watch_writes(u32 addr, u32 size) {
+    unwatch_writes();
+    if (!size || !valid(addr, size)) return;
+    g_watch_addr = physical(addr);
+    g_watch_size = size;
+    protect_watch(PAGE_READONLY);
+}
+
+void unwatch_writes() {
+    if (g_watch_size) protect_watch(PAGE_READWRITE);
+    g_watch_size = 0;
+    g_watch_lifted = false;
+}
+
+bool watch_fault(const void* host, bool* hit, u32* guest) {
+    u32 addr = 0;
+    if (!g_watch_size || !host_to_guest(host, &addr)) return false;
+    const u32 a = physical(addr);
+    const u32 first = g_watch_addr & ~0xFFFu, last = (g_watch_addr + g_watch_size + 0xFFFu) & ~0xFFFu;
+    if (a < first || a >= last) return false;
+    *hit = a + 8 > g_watch_addr && a < g_watch_addr + g_watch_size; // a wide store may start just below
+    *guest = addr;
+    protect_watch(PAGE_READWRITE);
+    g_watch_lifted = true;
+    return true;
+}
+
+bool watch_rearm() {
+    if (!g_watch_lifted) return false;
+    g_watch_lifted = false;
+    if (g_watch_size) protect_watch(PAGE_READONLY);
+    return true;
+}
+
 bool host_to_guest(const void* host, u32* guest) {
     const u8* p = static_cast<const u8*>(host);
     if (!g_base || p < g_base || p >= g_base + kSpaceSize) return false;

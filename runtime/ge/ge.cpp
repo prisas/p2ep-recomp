@@ -1,5 +1,6 @@
 #include "runtime/ge/ge.h"
 
+#include "lib/common/file.h"
 #include "lib/common/hash.h"
 #include "lib/common/log.h"
 #include "runtime/kernel/kernel.h"
@@ -49,6 +50,7 @@ std::vector<int> g_queue;
 bool g_executing = false;
 u32 g_vertex_addr = 0, g_index_addr = 0, g_offset_addr = 0;
 bool g_texture_touched = true; // a texture command ran since the last textured draw
+bool g_trace_draws = false;
 
 std::vector<Vertex> g_vertices;
 std::vector<u16> g_indices;
@@ -636,6 +638,37 @@ void draw_primitive(u32 prim_type, u32 count) {
     }
     }
 
+    if (g_trace_draws) {
+        const Vertex* v = prim_type == kSprites && !g_out_vertices.empty() ? g_out_vertices.data() : g_vertices.data();
+        const u32 last = prim_type == kSprites && !g_out_vertices.empty() ? u32(g_out_vertices.size()) - 1 : count - 1;
+        std::string line = format("draw prim %u n %u idx %zu vtype %06x at %08x fb %08x/%u f%u zb %08x sc %d,%d-%d,%d", prim_type,
+                                  count, g_indices.size(), s.vtype(), vertex_base, draw.fb_addr, draw.fb_stride, draw.fb_format,
+                                  draw.zb_addr,
+                                  draw.scissor_x1, draw.scissor_y1, draw.scissor_x2, draw.scissor_y2);
+        if (draw.clear_mode) append_format(line, " CLEAR c%d a%d z%d", draw.clear_color, draw.clear_alpha, draw.clear_depth);
+        if (draw.texture)
+            append_format(line, " tex %08x f%u %ux%u/%u fn %u a%d", draw.tex.addr, draw.tex.format, draw.tex.width,
+                          draw.tex.height, draw.tex.buf_width, draw.tex_func, draw.tex_alpha);
+        if (draw.blend)
+            append_format(line, " blend %u,%u eq %u fix %06x,%06x", draw.blend_src, draw.blend_dst, draw.blend_eq,
+                          draw.blend_fix_a & 0xFFFFFF, draw.blend_fix_b & 0xFFFFFF);
+        if (draw.depth_test) append_format(line, " ztest %u", draw.depth_func);
+        if (draw.depth_write) line += " zwrite";
+        if (draw.alpha_test) append_format(line, " atest %u ref %02x mask %02x", draw.alpha_func, draw.alpha_ref, draw.alpha_mask);
+        if (draw.color_test) append_format(line, " ctest %u", draw.color_func);
+        if (draw.stencil_test)
+            append_format(line, " stencil %u ref %02x mask %02x ops %u,%u,%u", draw.stencil_func, draw.stencil_ref,
+                          draw.stencil_mask, draw.stencil_sfail, draw.stencil_zfail, draw.stencil_zpass);
+        if (draw.fog) line += " fog";
+        if (s.lighting()) line += " lit";
+        if (cull) append_format(line, " cull %d", keep_clockwise);
+        append_format(line, " mask %06x/%02x", draw.write_mask_rgb & 0xFFFFFF, draw.write_mask_alpha);
+        append_format(line, " v0 (%.1f %.1f %.4f %.2f) uv %.3f,%.3f c %08x  vN (%.1f %.1f %.4f %.2f) uv %.3f,%.3f c %08x", v[0].x,
+                      v[0].y, v[0].z, v[0].w, v[0].u, v[0].v, v[0].color, v[last].x, v[last].y, v[last].z, v[last].w, v[last].u,
+                      v[last].v, v[last].color);
+        LOG_INFO("ge", "%s", line.c_str());
+    }
+
     if (g_indices.empty()) return;
     if (prim_type == kSprites)
         g_renderer->draw(draw, topology, g_out_vertices.data(), u32(g_out_vertices.size()), g_indices.data(), u32(g_indices.size()));
@@ -652,7 +685,10 @@ void block_transfer() {
     u32 dx = s.arg[kTransferDstPos] & 0x3FF, dy = (s.arg[kTransferDstPos] >> 10) & 0x3FF;
     u32 w = (s.arg[kTransferSize] & 0x3FF) + 1, h = ((s.arg[kTransferSize] >> 10) & 0x3FF) + 1;
     u32 bpp = (s.arg[kTransferStart] & 1) ? 4 : 2;
-    LOG_CH("ge", "block transfer %08x(%u,%u)/%u -> %08x(%u,%u)/%u  %ux%u  %u bpp", src, sx, sy, src_stride, dst, dx, dy,
+    if (g_trace_draws)
+        LOG_INFO("ge", "block transfer %08x(%u,%u)/%u -> %08x(%u,%u)/%u  %ux%u  %u bpp", src, sx, sy, src_stride, dst, dx, dy,
+                 dst_stride, w, h, bpp * 8);
+    LOG_CH("ge","block transfer %08x(%u,%u)/%u -> %08x(%u,%u)/%u  %ux%u  %u bpp", src, sx, sy, src_stride, dst, dx, dy,
            dst_stride, w, h, bpp * 8);
     if (g_renderer) g_renderer->block_transfer(src, src_stride, sx, sy, dst, dst_stride, dx, dy, w, h, bpp);
 }
@@ -854,6 +890,7 @@ void init(Renderer* renderer) {
 Renderer* renderer() { return g_renderer; }
 State& state() { return g_state; }
 Stats& stats() { return g_stats; }
+void set_draw_trace(bool on) { g_trace_draws = on; }
 
 s32 enqueue(u32 list_addr, u32 stall_addr, s32 callback_id, bool head) {
     if (!mem::valid(list_addr, 4)) return s32(kErrInvalidAddr);

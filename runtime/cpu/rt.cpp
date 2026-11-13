@@ -17,8 +17,10 @@ void init_dispatch() {
         const GenEntry& e = g_gen_module.entries[i];
         g_dispatch[(e.addr - P2_TEXT_BASE) / 4] = e.fn;
     }
-    g_hle_trace = log::channel_enabled("hle");
+    refresh_hle_trace();
 }
+
+void refresh_hle_trace() { g_hle_trace = log::channel_enabled("hle"); }
 
 GuestFn guest_function(u32 addr) { return lookup_guest_fn(addr); }
 

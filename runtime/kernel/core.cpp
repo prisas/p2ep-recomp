@@ -1,5 +1,6 @@
 #include "runtime/kernel/kernel.h"
 
+#include "lib/common/file.h"
 #include "lib/common/log.h"
 #include "runtime/cpu/recomp.h"
 #include "runtime/mem/memory.h"
@@ -650,6 +651,20 @@ bool init(std::string* error) {
     u32 stack = alloc_kernel("interrupt stack", 0x8000);
     g_intr_stack_top = stack + 0x8000;
     return true;
+}
+
+std::string describe_current() {
+    Thread* t = g_current;
+    if (!t) return "no guest thread";
+    std::string out = format("thread %d '%s' ra %08x sp %08x", t->uid, t->name.c_str(), t->cpu.r[kRegRa], t->cpu.r[kRegSp]);
+#if defined(P2EP_DEV)
+    if (t->cpu.shadow_base && t->cpu.shadow_sp > t->cpu.shadow_base) {
+        out += ", return addresses";
+        const size_t depth = size_t(t->cpu.shadow_sp - t->cpu.shadow_base);
+        for (size_t k = depth; k > 0 && depth - k < 12; --k) append_format(out, " %08x", t->cpu.shadow_base[k - 1]);
+    }
+#endif
+    return out;
 }
 
 void dump_state() {

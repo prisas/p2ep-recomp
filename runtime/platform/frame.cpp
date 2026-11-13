@@ -4,9 +4,11 @@
 
 #include "lib/common/file.h"
 #include "lib/common/log.h"
+#include "runtime/cpu/rt.h"
 #include "runtime/ge/ge.h"
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
+#include "runtime/mem/memory.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/window.h"
 
@@ -100,6 +102,19 @@ void on_frame() {
     }
 
     ++g_frames;
+    if (!opt.late_channels.empty() && g_frames == opt.late_from) {
+        log::enable_channels(opt.late_channels);
+        refresh_hle_trace();
+    }
+    if (opt.watch_size && g_frames == opt.watch_from) mem::watch_writes(opt.watch_addr, opt.watch_size);
+    if (!opt.ram_dump.empty() && g_frames == opt.ram_dump_frame)
+        write_file(opt.ram_dump, mem::ptr(mem::kRamBase), mem::kRamSize);
+    ge::set_draw_trace(g_frames == opt.trace_frame);
+    if (g_frames == opt.trace_frame) {
+        const hle::DisplayState& display = hle::display();
+        LOG_INFO("ge", "--- frame %llu, display %08x/%u f%u", static_cast<unsigned long long>(g_frames), display.fb_addr,
+                 display.fb_stride, display.fb_format);
+    }
     if (opt.frame_limit && g_frames >= opt.frame_limit) kernel::request_stop(0);
     if (!opt.unthrottled && !opt.headless && !turbo_held()) pace();
 }

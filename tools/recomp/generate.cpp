@@ -108,6 +108,30 @@ Input make_input(const psp::Module& module, const psp::NidTable& nids, const std
         for (u32 entry : extra_entries)
             if (file_backed_data(entry)) work.push_back(entry);
 
+        // Routines are also installed through addresses built in code, which leave no trace in
+        // the data. Two words are enough to recognise them wherever they sit: a return, its delay
+        // slot, and then a stack-frame prologue whose instructions run on to a return of their own.
+        constexpr u32 kJrRa = 0x03E00008u;
+        auto runs_to_return = [&](u32 addr) {
+            for (u32 n = 0; n < 4096 && file_backed_data(addr); ++n, addr += 4) {
+                Insn i(in.word(addr));
+                if (i.op == Op::Invalid) return false;
+                if (i.word == kJrRa || i.op == Op::J) return file_backed_data(addr + 4);
+            }
+            return false;
+        };
+        auto scan_routines = [&](u32 start, u32 end) {
+            for (u32 a = align_up<u32>(start, 4) + 8; a + 4 <= end; a += 4) {
+                if (in.word(a - 8) != kJrRa || !is_prologue(a) || !runs_to_return(a)) continue;
+                work.push_back(a);
+                pointer_seeds.push_back(a);
+            }
+        };
+        for (const psp::Section& s : module.sections)
+            if (s.alloc() && !s.exec() && s.type != 8 && s.size >= 12) scan_routines(s.addr, s.addr + s.size);
+        for (const CodeBlob& blob : blobs)
+            if (in.in_image(blob.addr, u32(blob.data.size()))) scan_routines(blob.addr, blob.addr + u32(blob.data.size()));
+
         std::set<u32> reached;
         for (bool grew = true; grew;) {
         grew = false;
@@ -151,6 +175,22 @@ Input make_input(const psp::Module& module, const psp::NidTable& nids, const std
             if (!in.in_image(next - 8) || in.word(next - 8) != 0x03E00008u) continue; // jr ra, then its delay slot
             work.push_back(next);
             pointer_seeds.push_back(next);
+            grew = true;
+        }
+        // The same holds backwards: a return directly before a discovered routine ends another
+        // one, which starts at the earliest prologue that runs straight into that return.
+        for (u32 addr : reached) {
+            if (!is_prologue(addr) || reached.count(addr - 4) || !in.in_image(addr - 8)) continue;
+            if (in.word(addr - 8) != kJrRa) continue;
+            u32 found = 0;
+            for (u32 a = addr - 12, n = 0; n < 4096 && file_backed_data(a) && !reached.count(a); ++n, a -= 4) {
+                Insn i(in.word(a));
+                if (i.op == Op::Invalid || i.word == kJrRa) break;
+                if (is_prologue(a)) found = a;
+            }
+            if (!found) continue;
+            work.push_back(found);
+            pointer_seeds.push_back(found);
             grew = true;
         }
         }

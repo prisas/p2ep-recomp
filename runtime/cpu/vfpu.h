@@ -769,7 +769,9 @@ P2_INLINE void vmmul(Cpu* c, u32 w) {
     eat_prefixes(c);
 }
 
-// vtfmN / vhtfmN: matrix times vector. The homogeneous forms treat the missing last component as 1.
+// vtfmN / vhtfmN: element i of the result is the dot product of column i of the matrix operand
+// with the vector. Code that wants the usual matrix-times-vector therefore names the matrix
+// transposed. The homogeneous forms treat the missing last component as 1.
 P2_INLINE void vtfm(Cpu* c, u32 w) {
     u32 ins = (w >> 23) & 3;       // matrix side - 1
     u32 n = f_size(w) + 1;         // elements named by the instruction
@@ -782,7 +784,7 @@ P2_INLINE void vtfm(Cpu* c, u32 w) {
     if (homogeneous) t.f[side - 1] = 1.0f;
     for (u32 i = 0; i < side; ++i) {
         f32 sum = 0.0f;
-        for (u32 k = 0; k < side; ++k) sum += s[k * 4 + i] * t.f[k];
+        for (u32 k = 0; k < side; ++k) sum += s[i * 4 + k] * t.f[k];
         d.f[i] = sum;
     }
     write_vec(c, d, ins, f_vd(w));

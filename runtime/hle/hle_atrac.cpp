@@ -31,7 +31,6 @@ constexpr u32 kErrBufferIsEmpty = 0x80630023;
 constexpr u32 kErrAllDataDecoded = 0x80630024;
 
 constexpr s32 kRemainAllInMemory = -1; // the whole file was supplied; nothing more to add
-constexpr s32 kRemainLoopInMemory = -3;
 
 struct Track {
     bool used = false;
@@ -171,7 +170,10 @@ bool fill_pcm(Track& t) {
 }
 
 s32 remaining_frames(const Track& t) {
-    if (t.fully_loaded()) return t.loop_start >= 0 && t.loop_count != 0 ? kRemainLoopInMemory : kRemainAllInMemory;
+    // Once the host image is complete nothing more is ever needed, loops included. Reporting the
+    // track as wholly in memory stops the game from issuing empty top-up reads, which its own
+    // stop logic would then wait on forever.
+    if (t.fully_loaded()) return kRemainAllInMemory;
     s32 ahead = s32(t.frames_available()) - s32(t.next_frame);
     return std::max(ahead, 0);
 }

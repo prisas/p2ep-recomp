@@ -54,8 +54,22 @@ int usage() {
 // Reports a host fault in terms the guest can be debugged with.
 LONG CALLBACK fault_handler(EXCEPTION_POINTERS* info) {
     const EXCEPTION_RECORD* rec = info->ExceptionRecord;
+    if (rec->ExceptionCode == EXCEPTION_SINGLE_STEP && mem::watch_rearm()) return EXCEPTION_CONTINUE_EXECUTION;
     if (rec->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
     const void* address = reinterpret_cast<const void*>(rec->ExceptionInformation[1]);
+    if (rec->ExceptionInformation[0] == 1) { // a write: possibly to memory under a debugging watch
+        bool hit = false;
+        u32 where = 0;
+        if (mem::watch_fault(address, &hit, &where)) {
+            static u32 reported = 0;
+            if (hit && reported < 200) {
+                ++reported;
+                LOG_INFO("watch", "write to %08x by %s", where, kernel::describe_current().c_str());
+            }
+            info->ContextRecord->EFlags |= 0x100; // single-step the store, then protect the page again
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
     const char* kind = rec->ExceptionInformation[0] == 1 ? "write to" : "read from";
     u32 guest = 0;
     if (mem::host_to_guest(address, &guest))
@@ -150,6 +164,20 @@ int main(int argc, char** argv) {
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--dump-textures") opt.texture_dump_dir = value();
         else if (a == "--dump-audio") audio_dump = value();
+        else if (a == "--trace-frame") opt.trace_frame = std::strtoull(value().c_str(), nullptr, 10);
+        else if (a == "--log-from") opt.late_from = std::strtoull(value().c_str(), nullptr, 10);
+        else if (a == "--dump-ram") { // <file>@<frame>
+            const std::string spec = value();
+            const size_t at = spec.rfind('@');
+            opt.ram_dump = spec.substr(0, at);
+            opt.ram_dump_frame = at == std::string::npos ? 0 : std::strtoull(spec.c_str() + at + 1, nullptr, 10);
+        } else if (a == "--watch") { // <hex address>:<bytes>@<frame>
+            const std::string spec = value();
+            char* end = nullptr;
+            opt.watch_addr = u32(std::strtoul(spec.c_str(), &end, 16));
+            opt.watch_size = *end == ':' ? u32(std::strtoul(end + 1, &end, 10)) : 4;
+            opt.watch_from = *end == '@' ? std::strtoull(end + 1, nullptr, 10) : 0;
+        }
         else if (a == "--input") host::set_input_script(value());
         else if (a == "--no-gpu") no_gpu = true;
         else if (a == "--log") channels = value();
@@ -165,7 +193,8 @@ int main(int argc, char** argv) {
     if (opt.image.empty()) return usage();
 
     log::set_level(verbose ? log::Level::Debug : log::Level::Info);
-    if (!channels.empty()) log::enable_channels(channels);
+    if (opt.late_from) opt.late_channels = channels;
+    else if (!channels.empty()) log::enable_channels(channels);
     if (!log_file.empty() && !log::open_file(log_file)) std::fprintf(stderr, "cannot open log file %s\n", log_file.c_str());
     log::set_fatal_hook(kernel::dump_state);
     AddVectoredExceptionHandler(1, fault_handler);

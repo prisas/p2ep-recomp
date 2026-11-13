@@ -378,7 +378,9 @@ TEST(vfpu_matrices) {
     set_quad(f.cpu, 1, 3, 10, 20, 30, 1);
 
     set_quad(f.cpu, 2, 0, 1, 1, 1, 1);
-    vfpu::vtfm(&f.cpu, 0xF1800000 | kQuad | (vreg(2, 0, 0) << 16) | (vreg(1, 0, 0) << 8) | vreg(2, 1, 0)); // vtfm4.q
+    // Each result element is a dot product with a column of the operand, so the usual
+    // matrix-times-vector names the matrix transposed.
+    vfpu::vtfm(&f.cpu, 0xF1800000 | kQuad | (vreg(2, 0, 0) << 16) | (vreg(1, 0, 1) << 8) | vreg(2, 1, 0)); // vtfm4.q
     CHECK_EQ(elem(f.cpu, 2, 1, 0), 12.0f);
     CHECK_EQ(elem(f.cpu, 2, 1, 1), 23.0f);
     CHECK_EQ(elem(f.cpu, 2, 1, 2), 34.0f);
@@ -386,9 +388,15 @@ TEST(vfpu_matrices) {
 
     // Homogeneous form: a triple with an implied w of 1 gives the same result.
     set_quad(f.cpu, 2, 0, 1, 1, 1, 77);
-    vfpu::vtfm(&f.cpu, 0xF1800000 | kTriple | (vreg(2, 0, 0) << 16) | (vreg(1, 0, 0) << 8) | vreg(2, 2, 0)); // vhtfm4.q
+    vfpu::vtfm(&f.cpu, 0xF1800000 | kTriple | (vreg(2, 0, 0) << 16) | (vreg(1, 0, 1) << 8) | vreg(2, 2, 0)); // vhtfm4.q
     CHECK_EQ(elem(f.cpu, 2, 2, 0), 12.0f);
     CHECK_EQ(elem(f.cpu, 2, 2, 2), 34.0f);
+
+    // Named untransposed, the same operands give the product with the transposed matrix.
+    set_quad(f.cpu, 2, 0, 1, 1, 1, 1);
+    vfpu::vtfm(&f.cpu, 0xF1800000 | kQuad | (vreg(2, 0, 0) << 16) | (vreg(1, 0, 0) << 8) | vreg(2, 3, 0));
+    CHECK_EQ(elem(f.cpu, 2, 3, 0), 2.0f);
+    CHECK_EQ(elem(f.cpu, 2, 3, 3), 61.0f);
 
     // Identity times M is M.
     vfpu::vmmul(&f.cpu, 0xF0000000 | kQuad | (vreg(1, 0, 0) << 16) | (vreg(0, 0, 0) << 8) | vreg(3, 0, 0));

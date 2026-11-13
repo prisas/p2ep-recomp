@@ -49,4 +49,14 @@ void write_string(u32 addr, const std::string& text, u32 capacity);
 // Classifies a host fault address. Returns true and the guest address when it lies in the guest space.
 bool host_to_guest(const void* host, u32* guest);
 
+// --- write watch (debugging) ------------------------------------------------------------------------------------
+// Makes the pages holding [addr, addr + size) read-only in every mirror, so that writes to them
+// fault. The fault handler passes each write fault to `watch_fault`: when it returns true the
+// pages are writable again and the faulting instruction must be single-stepped, after which
+// `watch_rearm` restores the protection. `*hit` tells whether the write touched the watched bytes.
+void watch_writes(u32 addr, u32 size);
+void unwatch_writes();
+bool watch_fault(const void* host, bool* hit, u32* guest);
+bool watch_rearm();
+
 } // namespace p2::mem
