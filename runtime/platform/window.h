@@ -38,6 +38,10 @@ void* window_handle(); // SDL_Window*, or null when headless
 bool pump_events();
 PadState pad_state();
 
+// Makes the next pump_events() report that the user wants to quit.
+void request_quit();
+void set_fullscreen(bool on);
+
 // True while the fast-forward key is held.
 bool turbo_held();
 

@@ -10,9 +10,11 @@
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
+#include "runtime/platform/config.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/window.h"
+#include "runtime/ui/overlay.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,14 +31,16 @@ namespace {
 constexpr const char* kExecutablePath = "PSP_GAME/SYSDIR/EBOOT.BIN";
 constexpr u32 kMinRootStack = 0x40000;
 
-std::unique_ptr<ge::Renderer> g_renderer;
+std::unique_ptr<gfx::Renderer> g_renderer;
 
 int usage() {
     std::puts("usage: p2ep <disc-image> [options]\n"
               "\n"
               "  --user-dir <dir>      where saves and settings are kept (default: ./userdata)\n"
-              "  --scale <n>           internal resolution multiplier, 1-10 (default 1)\n"
+              "  --scale <n>           rendering resolution multiplier, 1-10 (default: match the window)\n"
+              "  --fullscreen          start in full screen\n"
               "  --headless            run without a window or audio device\n"
+              "  --overlay             with --headless: draw the overlay and let scripted input answer dialogs\n"
               "  --unthrottled         do not pace the game to real time\n"
               "  --frames <n>          quit after n displayed frames\n"
               "  --dump-frames <dir>   write displayed frames as PNG files\n"
@@ -149,15 +153,23 @@ int main(int argc, char** argv) {
     opt.user_dir = "userdata";
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
-    bool verbose = false, no_gpu = false;
-    u32 scale = 1;
+    bool verbose = false, no_gpu = false, fullscreen = false;
+    u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto value = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
         if (a == "--user-dir") opt.user_dir = value();
         else if (a == "--scale") scale = u32(std::strtoul(value().c_str(), nullptr, 10));
+        else if (a == "--fullscreen") fullscreen = true;
         else if (a == "--headless") opt.headless = true;
+        else if (a == "--overlay") opt.overlay = true;
+        else if (a == "--show-menu") { // <frame>[:<tab>]
+            const std::string spec = value();
+            char* end = nullptr;
+            opt.menu_frame = std::strtoull(spec.c_str(), &end, 10);
+            opt.menu_tab = *end == ':' ? u32(std::strtoul(end + 1, nullptr, 10)) : 0;
+        }
         else if (a == "--unthrottled") opt.unthrottled = true;
         else if (a == "--frames") opt.frame_limit = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-frames") opt.dump_dir = value();
@@ -199,24 +211,42 @@ int main(int argc, char** argv) {
     log::set_fatal_hook(kernel::dump_state);
     AddVectoredExceptionHandler(1, fault_handler);
 
+    // Settings come from the user folder; options given on the command line win for this run.
+    host::load_settings(opt.user_dir / "settings.ini");
+    host::Settings& settings = host::settings();
+    if (scale) settings.scale = std::min<u32>(scale, 10);
+    if (opt.unthrottled) settings.vsync = false;
+    if (fullscreen) settings.fullscreen = true;
+
     std::string error;
     if (!mem::init(&error) || !host::window_init(&error)) {
         std::fprintf(stderr, "error: %s\n", error.c_str());
         return 1;
     }
+    audio::output_init();
     if (!no_gpu) {
+        // The overlay needs somewhere to draw: the window, or an off-screen picture when asked for.
+        constexpr u32 kOffscreenWidth = 960, kOffscreenHeight = 544;
+        const bool overlay = (host::window_handle() || opt.overlay) && ui::init(host::window_handle(), kOffscreenWidth, kOffscreenHeight);
         gfx::RendererOptions renderer_options;
         renderer_options.sdl_window = host::window_handle();
-        renderer_options.scale = scale;
-        renderer_options.vsync = !opt.unthrottled;
+        renderer_options.scale = std::max<u32>(settings.scale, 1);
+        renderer_options.vsync = settings.vsync;
+        renderer_options.overlay = overlay;
+        if (overlay && !host::window_handle()) {
+            renderer_options.offscreen_width = kOffscreenWidth;
+            renderer_options.offscreen_height = kOffscreenHeight;
+        }
+        renderer_options.cache_dir = opt.user_dir / "cache";
         g_renderer = gfx::create_vulkan_renderer(renderer_options, &error);
         if (!g_renderer) {
             std::fprintf(stderr, "error: %s\n", error.c_str());
             return 1;
         }
+        host::set_renderer(g_renderer.get());
+        ui::attach(g_renderer.get());
     }
     ge::init(g_renderer.get());
-    audio::output_init();
     if (!audio_dump.empty() && !audio::output_record(audio_dump)) std::fprintf(stderr, "cannot write %s\n", audio_dump.c_str());
     if (!boot(&error)) {
         std::fprintf(stderr, "error: %s\n", error.c_str());
@@ -229,7 +259,9 @@ int main(int argc, char** argv) {
              static_cast<unsigned long long>(host::frames_shown()), double(kernel::now_us()) / 1e6,
              static_cast<unsigned long long>(gs.lists), static_cast<unsigned long long>(gs.draws),
              static_cast<unsigned long long>(gs.vertices));
+    host::set_renderer(nullptr);
     g_renderer.reset();
+    ui::shutdown();
     audio::output_shutdown();
     host::window_shutdown();
     return kernel::exit_code();

@@ -3,7 +3,10 @@
     "name": "p2ep",
     "version-string": "0.1.0",
     "dependencies": [
-        "sdl3",
+        {
+            "name": "sdl3",
+            "features": ["vulkan"]
+        },
         "vulkan-headers",
         "volk",
         "vulkan-memory-allocator",

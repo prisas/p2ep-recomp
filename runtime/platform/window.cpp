@@ -1,7 +1,9 @@
 #include "runtime/platform/window.h"
 
 #include "lib/common/log.h"
+#include "runtime/platform/config.h"
 #include "runtime/platform/host.h"
+#include "runtime/ui/overlay.h"
 
 #include <SDL3/SDL.h>
 
@@ -21,18 +23,8 @@ bool g_sdl_ready = false;
 std::vector<std::pair<u64, u32>> g_script; // (frame, buttons), sorted
 u32 g_script_buttons = 0;
 
-struct KeyBinding {
-    SDL_Scancode key;
-    u32 button;
-};
-
-// Default keyboard layout: arrows move, Z/X/A/S are cross/circle/square/triangle.
-constexpr KeyBinding kKeys[] = {
-    {SDL_SCANCODE_UP, kPadUp},       {SDL_SCANCODE_DOWN, kPadDown},   {SDL_SCANCODE_LEFT, kPadLeft},
-    {SDL_SCANCODE_RIGHT, kPadRight}, {SDL_SCANCODE_Z, kPadCross},     {SDL_SCANCODE_X, kPadCircle},
-    {SDL_SCANCODE_A, kPadSquare},    {SDL_SCANCODE_S, kPadTriangle},  {SDL_SCANCODE_Q, kPadL},
-    {SDL_SCANCODE_W, kPadR},         {SDL_SCANCODE_RETURN, kPadStart}, {SDL_SCANCODE_BACKSPACE, kPadSelect},
-};
+bool g_quit = false;
+u32 g_held_over = 0; // buttons still down from before the overlay gave the pad back
 
 struct PadBinding {
     SDL_GamepadButton button;
@@ -64,6 +56,8 @@ void open_first_gamepad() {
     SDL_free(ids);
 }
 
+void route_pad(PadState pad);
+
 } // namespace
 
 bool window_init(std::string* error) {
@@ -94,17 +88,44 @@ void window_shutdown() {
 
 void* window_handle() { return g_window; }
 
+namespace {
+
+// Hands the pad to the overlay while it has a dialog or the menu up; the game then sees nothing,
+// and afterwards not the buttons that were used to close it until they are released.
+void route_pad(PadState pad) {
+    ui::set_pad(pad.buttons);
+    if (ui::captures_pad()) {
+        g_held_over = pad.buttons;
+        pad = PadState{};
+    } else {
+        g_held_over &= pad.buttons;
+        pad.buttons &= ~g_held_over;
+    }
+    g_pad = pad;
+}
+
+} // namespace
+
+void request_quit() { g_quit = true; }
+
+void set_fullscreen(bool on) {
+    if (!g_window) return;
+    const bool now = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (now != on) SDL_SetWindowFullscreen(g_window, on);
+}
+
 bool pump_events() {
     PadState pad;
     pad.buttons = g_script_buttons;
     if (!g_sdl_ready) {
-        g_pad = pad;
-        return true;
+        route_pad(pad);
+        return !g_quit;
     }
 
-    bool keep_running = true;
+    bool keep_running = !g_quit;
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (ui::process_event(&event)) continue;
         switch (event.type) {
         case SDL_EVENT_QUIT:
         case SDL_EVENT_WINDOW_CLOSE_REQUESTED: keep_running = false; break;
@@ -117,10 +138,17 @@ bool pump_events() {
             }
             break;
         case SDL_EVENT_KEY_DOWN:
+            if (event.key.repeat) break;
             if (event.key.scancode == SDL_SCANCODE_F11 || (event.key.scancode == SDL_SCANCODE_RETURN && (event.key.mod & SDL_KMOD_ALT))) {
-                bool fullscreen = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
-                SDL_SetWindowFullscreen(g_window, !fullscreen);
+                settings().fullscreen = !settings().fullscreen;
+                set_fullscreen(settings().fullscreen);
+                save_settings();
+            } else if (event.key.scancode == SDL_SCANCODE_ESCAPE || event.key.scancode == SDL_SCANCODE_F1) {
+                ui::toggle_menu();
             }
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            if (event.gbutton.button == SDL_GAMEPAD_BUTTON_GUIDE) ui::toggle_menu();
             break;
         default: break;
         }
@@ -128,8 +156,9 @@ bool pump_events() {
 
     const bool* keys = SDL_GetKeyboardState(nullptr);
     const bool alt = keys[SDL_SCANCODE_LALT] || keys[SDL_SCANCODE_RALT];
-    for (const KeyBinding& b : kKeys)
-        if (keys[b.key] && !(alt && b.key == SDL_SCANCODE_RETURN)) pad.buttons |= b.button;
+    const Settings& s = settings();
+    for (u32 i = 0; i < kPadButtonCount; ++i)
+        if (keys[s.keys[i]] && !(alt && s.keys[i] == SDL_SCANCODE_RETURN)) pad.buttons |= kPadButtonBits[i];
     g_turbo = keys[SDL_SCANCODE_TAB];
 
     if (g_gamepad) {
@@ -139,8 +168,8 @@ bool pump_events() {
         pad.ly = axis_to_byte(SDL_GetGamepadAxis(g_gamepad, SDL_GAMEPAD_AXIS_LEFTY));
         if (SDL_GetGamepadAxis(g_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000) g_turbo = true;
     }
-    g_pad = pad;
-    return keep_running;
+    route_pad(pad);
+    return keep_running && !g_quit;
 }
 
 PadState pad_state() { return g_pad; }

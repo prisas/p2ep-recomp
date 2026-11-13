@@ -6,11 +6,14 @@
 #include "lib/common/log.h"
 #include "runtime/cpu/rt.h"
 #include "runtime/ge/ge.h"
+#include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
+#include "runtime/platform/config.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/window.h"
+#include "runtime/ui/overlay.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #pragma clang diagnostic push
@@ -27,8 +30,10 @@ namespace p2::host {
 namespace {
 
 u64 g_frames = 0;
+gfx::Renderer* g_renderer = nullptr;
 s64 g_qpc_frequency = 0;
 s64 g_next_deadline = 0;
+s64 g_last_present = 0;
 HANDLE g_timer = nullptr;
 
 constexpr double kFrameSeconds = 1.001 / 60.0;
@@ -39,16 +44,20 @@ s64 qpc_now() {
     return t.QuadPart;
 }
 
-// Sleeps until the next frame boundary; resynchronises after a long stall instead of racing to catch up.
-void pace() {
-    if (!g_qpc_frequency) {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        g_qpc_frequency = f.QuadPart;
-        g_timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /* high resolution */, TIMER_ALL_ACCESS);
-        g_next_deadline = qpc_now();
-    }
-    const s64 frame_ticks = s64(kFrameSeconds * double(g_qpc_frequency));
+void init_clock() {
+    if (g_qpc_frequency) return;
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    g_qpc_frequency = f.QuadPart;
+    g_timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /* high resolution */, TIMER_ALL_ACCESS);
+    g_next_deadline = qpc_now();
+}
+
+// Sleeps until the next frame boundary, `speed` times faster than the console's frame rate;
+// resynchronises after a long stall instead of racing to catch up.
+void pace(u32 speed) {
+    init_clock();
+    const s64 frame_ticks = s64(kFrameSeconds * double(g_qpc_frequency)) / s64(speed);
     g_next_deadline += frame_ticks;
     s64 now = qpc_now();
     if (now > g_next_deadline + frame_ticks * 4) {
@@ -74,7 +83,9 @@ void dump_frame() {
     if (!renderer) return;
     std::vector<u8> pixels;
     u32 w = 0, h = 0;
-    if (!renderer->capture(pixels, w, h)) return;
+    // With the overlay on in an unattended run, dump the composed picture so the overlay shows.
+    const bool composed = g_renderer && ui::active() && g_renderer->capture_output(pixels, w, h);
+    if (!composed && !renderer->capture(pixels, w, h)) return;
     std::error_code ec;
     std::filesystem::create_directories(options().dump_dir, ec);
     std::string path = (options().dump_dir / format("frame_%06llu.png", static_cast<unsigned long long>(g_frames))).string();
@@ -89,17 +100,37 @@ bool write_png(const std::string& path, u32 width, u32 height, const void* rgba)
     return stbi_write_png(path.c_str(), int(width), int(height), 4, rgba, int(width) * 4) != 0;
 }
 
+void set_renderer(gfx::Renderer* renderer) { g_renderer = renderer; }
+
 void on_frame() {
     const Options& opt = options();
     advance_input_script(g_frames);
-    if (!pump_events()) kernel::request_stop(0);
+    if (opt.menu_frame && g_frames == opt.menu_frame) ui::open_menu(int(opt.menu_tab));
+    bool running = pump_events();
+
+    // Frame time and speed for the performance display, measured presentation to presentation.
+    init_clock();
+    const s64 now = qpc_now();
+    if (g_last_present) {
+        const f32 ms = f32(double(now - g_last_present) * 1000.0 / double(g_qpc_frequency));
+        ui::frame_stats(ms, ms > 0.0f ? f32(kFrameSeconds * 1000.0) / ms * 100.0f : 0.0f);
+    }
+    g_last_present = now;
 
     if (ge::Renderer* renderer = ge::renderer()) {
         const hle::DisplayState& display = hle::display();
         ge::DisplayTarget target{display.fb_addr, display.fb_stride, display.fb_format};
         renderer->present(target);
         if (!opt.dump_dir.empty() && opt.dump_every && g_frames % opt.dump_every == 0) dump_frame();
+        // While the menu is open the game stands still: keep showing the same picture under it.
+        while (running && ui::menu_open() && !opt.headless) {
+            pace(1);
+            running = pump_events();
+            renderer->present(target);
+            g_last_present = 0;
+        }
     }
+    if (!running) kernel::request_stop(0);
 
     ++g_frames;
     if (!opt.late_channels.empty() && g_frames == opt.late_from) {
@@ -116,7 +147,10 @@ void on_frame() {
                  display.fb_stride, display.fb_format);
     }
     if (opt.frame_limit && g_frames >= opt.frame_limit) kernel::request_stop(0);
-    if (!opt.unthrottled && !opt.headless && !turbo_held()) pace();
+    if (opt.unthrottled || opt.headless) return;
+    // Fast-forward runs flat out, or at a chosen multiple of normal speed.
+    if (!turbo_held()) pace(1);
+    else if (settings().turbo_speed) pace(settings().turbo_speed);
 }
 
 } // namespace p2::host

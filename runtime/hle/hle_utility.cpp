@@ -8,9 +8,11 @@
 #include "lib/psp/sfo.h"
 #include "runtime/hle/hle.h"
 #include "runtime/platform/host.h"
+#include "runtime/ui/overlay.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <vector>
 
 using namespace p2;
@@ -31,15 +33,22 @@ constexpr u32 kErrDeleteNoData = 0x80110347;
 struct Dialog {
     u32 status = kStatusNone;
     u32 param = 0;
+    // What a dialog that waits for the user does on each update; returns true once it is done.
+    // Dialogs without one finish on their first update.
+    std::function<bool()> step;
 
     u32 start(u32 param_addr) {
         if (status != kStatusNone) return kErrWrongStatus;
         status = kStatusInit;
         param = param_addr;
+        step = nullptr;
         return 0;
     }
     u32 update() {
-        if (status == kStatusRunning) status = kStatusFinished;
+        if (status == kStatusRunning && (!step || step())) {
+            status = kStatusFinished;
+            step = nullptr;
+        }
         return 0;
     }
     u32 shutdown() {
@@ -202,7 +211,8 @@ void fill_used_space(u32 addr, u64 bytes) {
     mem::write_string(addr + 20, size_text(rounded), 8);
 }
 
-u32 run_savedata(u32 param) {
+// `pick_slot`: nobody chose a slot for a list mode, so take a sensible one.
+u32 run_savedata(u32 param, bool pick_slot) {
     const u32 struct_size = mem::r32(param);
     const u32 mode = mem::r32(param + kOffMode);
     const std::string game = fixed_string(param + kOffGameName, 13);
@@ -210,9 +220,9 @@ u32 run_savedata(u32 param) {
     const std::string file = fixed_string(param + kOffFileName, 13);
     const u32 name_list = mem::r32(param + kOffSaveNameList);
 
-    // List modes pick a slot: without a selection screen yet, loads take the first slot that
-    // exists and saves take the first slot offered.
-    if ((mode == 4 || mode == 5 || mode == 6) && name_list && mem::valid(name_list, 20)) {
+    // Without a selection screen, loads take the first slot that exists and saves take the first
+    // slot offered.
+    if (pick_slot && (mode == 4 || mode == 5 || mode == 6) && name_list && mem::valid(name_list, 20)) {
         std::error_code ec;
         std::string first;
         for (u32 i = 0; i < 64; ++i) {
@@ -351,6 +361,170 @@ u32 run_savedata(u32 param) {
     }
 }
 
+// --- slot selection ---------------------------------------------------------------------------------------------
+// The list modes let the player choose a slot. The overlay shows the list; the dialog stays in
+// its running state until an answer arrives.
+
+constexpr u32 kResultCancelled = 1;
+
+struct SlotFlow {
+    u32 param = 0, mode = 0;
+    std::string game;
+    std::vector<ui::SaveSlot> slots;
+    enum { Listing, Confirming, Reporting } stage = Listing;
+    int chosen = 0;
+    u32 report_result = 0;
+};
+
+SlotFlow g_flow;
+
+std::string time_text(std::filesystem::file_time_type time) {
+    using namespace std::chrono;
+    auto sys = time_point_cast<system_clock::duration>(time - std::filesystem::file_time_type::clock::now() + system_clock::now());
+    std::time_t t = system_clock::to_time_t(sys);
+    std::tm local{};
+    localtime_s(&local, &t);
+    return format("%04d-%02d-%02d  %02d:%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
+}
+
+ui::SlotPurpose purpose_of(u32 mode) {
+    return mode == 5 ? ui::SlotPurpose::Save : mode == 4 ? ui::SlotPurpose::Load : ui::SlotPurpose::Delete;
+}
+
+void list_slots(SlotFlow& flow, u32 name_list, const std::string& file) {
+    flow.slots.clear();
+    std::error_code ec;
+    for (u32 i = 0; i < 64 && mem::valid(name_list + i * 20, 20); ++i) {
+        ui::SaveSlot slot;
+        slot.id = fixed_string(name_list + i * 20, 20);
+        if (slot.id.empty()) break;
+        if (!safe_name(slot.id)) continue;
+        const std::filesystem::path dir = save_root() / (flow.game + slot.id);
+        slot.exists = std::filesystem::is_directory(dir, ec);
+        if (slot.exists) {
+            std::vector<u8> bytes;
+            psp::Sfo sfo;
+            if (read_file(dir / "PARAM.SFO", bytes) && sfo.parse(bytes.data(), bytes.size())) {
+                slot.title = sfo.get_string("SAVEDATA_TITLE");
+                slot.detail = sfo.get_string("SAVEDATA_DETAIL");
+                if (slot.title.empty()) slot.title = sfo.get_string("TITLE");
+            }
+            const std::filesystem::path stamp = !file.empty() && std::filesystem::exists(dir / file, ec) ? dir / file : dir;
+            slot.when = time_text(std::filesystem::last_write_time(stamp, ec));
+            slot.icon = dir / "ICON0.PNG";
+        }
+        flow.slots.push_back(std::move(slot));
+    }
+}
+
+// Where the list opens, following the game's hint (first, last, first empty, ...).
+int initial_focus(const SlotFlow& flow, u32 hint) {
+    const int count = int(flow.slots.size());
+    auto find = [&](bool exists, bool from_end) {
+        for (int k = 0; k < count; ++k) {
+            const int i = from_end ? count - 1 - k : k;
+            if (flow.slots[size_t(i)].exists == exists) return i;
+        }
+        return 0;
+    };
+    switch (hint) {
+    case 2: return std::max(0, count - 1);
+    case 3: { // most recently written
+        int best = find(true, false);
+        for (int i = 0; i < count; ++i)
+            if (flow.slots[size_t(i)].exists && flow.slots[size_t(i)].when > flow.slots[size_t(best)].when) best = i;
+        return best;
+    }
+    case 7: return find(false, false);
+    case 8: return find(false, true);
+    default: return flow.mode == 5 ? 0 : find(true, false);
+    }
+}
+
+void finish_savedata(u32 param, u32 result) {
+    mem::w32(param + kOffResult, result);
+    LOG_INFO("save", "save-data result %08x", result);
+}
+
+void perform_chosen(SlotFlow& flow) {
+    mem::write_string(flow.param + kOffSaveName, flow.slots[size_t(flow.chosen)].id, 20);
+    const u32 result = run_savedata(flow.param, false);
+    finish_savedata(flow.param, result);
+    if (result == 0 && flow.mode == 5) ui::notify("Saved.");
+    else if (result == 0 && flow.mode == 6) ui::notify("Save data deleted.");
+    else if (result != 0) ui::notify(format("The save data could not be %s.", flow.mode == 5 ? "written" : flow.mode == 4 ? "read" : "deleted"));
+}
+
+bool step_slot_flow() {
+    SlotFlow& flow = g_flow;
+    switch (flow.stage) {
+    case SlotFlow::Listing: {
+        const int answer = ui::slot_dialog_result();
+        if (answer == ui::kPending) return false;
+        if (answer == ui::kCancelled) {
+            finish_savedata(flow.param, kResultCancelled);
+            return true;
+        }
+        flow.chosen = answer;
+        const bool exists = flow.slots[size_t(answer)].exists;
+        if (flow.mode == 5 && exists) {
+            ui::open_message("This slot already holds save data.\nOverwrite it?", true, true);
+            flow.stage = SlotFlow::Confirming;
+            return false;
+        }
+        if (flow.mode == 6) {
+            ui::open_message("Delete this save data?", true, true);
+            flow.stage = SlotFlow::Confirming;
+            return false;
+        }
+        perform_chosen(flow);
+        return true;
+    }
+    case SlotFlow::Confirming: {
+        const int answer = ui::message_result();
+        if (answer == ui::kPending) return false;
+        if (answer == 1) {
+            perform_chosen(flow);
+            return true;
+        }
+        ui::open_slot_dialog(purpose_of(flow.mode), flow.slots, flow.chosen);
+        flow.stage = SlotFlow::Listing;
+        return false;
+    }
+    case SlotFlow::Reporting:
+        if (ui::message_result() == ui::kPending) return false;
+        finish_savedata(flow.param, flow.report_result);
+        return true;
+    }
+    return true;
+}
+
+// Starts the interactive version of a list mode. False when the request cannot be shown as a list.
+bool begin_slot_flow(u32 param) {
+    SlotFlow& flow = g_flow;
+    flow = SlotFlow{};
+    flow.param = param;
+    flow.mode = mem::r32(param + kOffMode);
+    flow.game = fixed_string(param + kOffGameName, 13);
+    const u32 name_list = mem::r32(param + kOffSaveNameList);
+    if (!safe_name(flow.game) || !name_list || !mem::valid(name_list, 20)) return false;
+    list_slots(flow, name_list, fixed_string(param + kOffFileName, 13));
+    if (flow.slots.empty()) return false;
+
+    const bool any = std::any_of(flow.slots.begin(), flow.slots.end(), [](const ui::SaveSlot& s) { return s.exists; });
+    LOG_INFO("save", "save-data request: mode %u, game '%s', %zu slot(s) offered", flow.mode, flow.game.c_str(), flow.slots.size());
+    if (flow.mode != 5 && !any) {
+        ui::open_message("There is no save data.", false, false);
+        flow.stage = SlotFlow::Reporting;
+        flow.report_result = flow.mode == 4 ? kErrLoadNoData : kErrDeleteNoData;
+    } else {
+        const u32 hint = mem::r32(param) > kOffFocus ? mem::r32(param + kOffFocus) : 0;
+        ui::open_slot_dialog(purpose_of(flow.mode), flow.slots, initial_focus(flow, hint));
+    }
+    g_savedata.step = step_slot_flow;
+    return true;
+}
+
 } // namespace
 
 // --- save data ------------------------------------------------------------------------------------------------
@@ -360,9 +534,9 @@ HLE(sceUtilitySavedataInitStart) {
     if (!mem::valid(param, 0x5C8)) RET(kErrIllegalAddr);
     u32 started = g_savedata.start(param);
     if (started) RET(started);
-    u32 result = run_savedata(param);
-    mem::w32(param + kOffResult, result);
-    LOG_INFO("save", "save-data result %08x", result);
+    const u32 mode = mem::r32(param + kOffMode);
+    if (ui::interactive() && (mode == 4 || mode == 5 || mode == 6) && begin_slot_flow(param)) RET(0);
+    finish_savedata(param, run_savedata(param, true));
     RET(0);
 }
 
@@ -380,12 +554,23 @@ HLE(sceUtilityMsgDialogInitStart) {
     u32 started = g_msg.start(param);
     if (started) RET(started);
     u32 mode = mem::r32(param + 0x34), options = mem::r32(param + 0x23C);
-    if (mode == 0) LOG_INFO("dialog", "system message: error %08x", mem::r32(param + 0x38));
-    else LOG_INFO("dialog", "system message: %s", mem::read_string(param + 0x3C, 511).c_str());
-    // Until the overlay can ask, a yes/no question is answered with its default choice.
-    const bool yes_no = (options & 0x10) != 0, default_no = (options & 0x100) != 0;
-    mem::w32(param + 0x240, yes_no ? (default_no ? 2u : 1u) : 0u);
+    const std::string text = mode == 0 ? format("An error has occurred. (%08X)", mem::r32(param + 0x38))
+                                       : mem::read_string(param + 0x3C, 511);
+    LOG_INFO("dialog", "system message: %s", text.c_str());
+    const bool yes_no = mode != 0 && (options & 0x10) != 0, default_no = (options & 0x100) != 0;
     mem::w32(param + kOffResult, 0);
+    if (ui::interactive()) {
+        ui::open_message(text, yes_no, default_no);
+        g_msg.step = [param, yes_no] {
+            const int answer = ui::message_result();
+            if (answer == ui::kPending) return false;
+            mem::w32(param + 0x240, yes_no ? u32(answer) : (answer == 3 ? 3u : 0u));
+            return true;
+        };
+    } else {
+        // With nobody to ask, a yes/no question is answered with its default choice.
+        mem::w32(param + 0x240, yes_no ? (default_no ? 2u : 1u) : 0u);
+    }
     RET(0);
 }
 

@@ -22,6 +22,9 @@ struct Options {
     u64 late_from = 0;
     u32 watch_addr = 0, watch_size = 0; // report writes to this guest range (debugging) ...
     u64 watch_from = 0;                 // ... once this many frames have been shown
+    bool overlay = false;               // unattended runs: draw the overlay too, and let it answer dialogs
+    u64 menu_frame = 0;                 // open the settings menu at this frame (for screenshots) ...
+    u32 menu_tab = 0;                   // ... on this tab
     std::filesystem::path ram_dump;     // write the guest's main memory here (debugging) ...
     u64 ram_dump_frame = 0;             // ... when this many frames have been shown
 };

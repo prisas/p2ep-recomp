@@ -4,7 +4,14 @@
 
 #include <string>
 
+namespace p2::gfx {
+class Renderer;
+}
+
 namespace p2::host {
+
+// The renderer whose composed output frame dumps may use. Optional.
+void set_renderer(gfx::Renderer* renderer);
 
 // Called once per guest vertical blank: polls input, presents, dumps frames and paces to real time.
 void on_frame();

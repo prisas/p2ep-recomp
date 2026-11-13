@@ -28,6 +28,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
+
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
@@ -172,11 +175,24 @@ void unpack_color(u32 c, f32 out[4]) {
     out[3] = f32(c >> 24) / 255.0f;
 }
 
-class VulkanRenderer final : public ge::Renderer {
+class VulkanRenderer final : public Renderer {
 public:
     ~VulkanRenderer() override { shutdown(); }
 
     bool init(const RendererOptions& options, std::string* error);
+
+    void set_scale(u32 scale) override;
+    u32 scale() const override { return scale_; }
+    void set_vsync(bool on) override;
+    void set_fit(Fit fit, bool smooth) override {
+        fit_ = fit;
+        smooth_ = smooth;
+    }
+    void output_size(u32& width, u32& height) const override;
+    void set_overlay_builder(std::function<void()> build) override { overlay_builder_ = std::move(build); }
+    bool capture_output(std::vector<u8>& rgba, u32& width, u32& height) override;
+    u64 create_ui_texture(const u32* rgba, u32 width, u32 height) override;
+    void destroy_ui_texture(u64 handle) override;
 
     void draw(const DrawState& state, ge::Topology topology, const ge::Vertex* vertices, u32 vertex_count,
               const u16* indices, u32 index_count) override;
@@ -217,10 +233,29 @@ private:
     void upload_rgba(Image& dst, const u32* pixels, u32 w, u32 h);
     Image* display_image(const ge::DisplayTarget& target, u32* src_w, u32* src_h);
     void blit(Image& src, VkOffset3D s0, VkOffset3D s1, Image& dst, VkOffset3D d0, VkOffset3D d1, VkFilter filter);
+    void compose(VkImage image, VkImageView view, VkExtent2D extent, VkImageLayout final_layout, Image* source, u32 src_w,
+                 u32 src_h);
+    bool init_overlay(VkFormat format);
+    void load_pipeline_cache();
+    void save_pipeline_cache();
 
     RendererOptions options_;
     SDL_Window* window_ = nullptr;
     u32 scale_ = 1;
+    Fit fit_ = Fit::Aspect;
+    bool smooth_ = true;
+
+    std::function<void()> overlay_builder_;
+    bool overlay_ready_ = false;
+    Image offscreen_; // the final picture when there is no window
+    struct UiTexture {
+        Image image;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+    };
+    std::unordered_map<u64, UiTexture> ui_textures_;
+    std::vector<UiTexture> ui_garbage_; // released once the frame that may still use them is done
+    VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
+    size_t pipelines_at_load_ = 0;
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
@@ -235,6 +270,8 @@ private:
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     std::vector<VkImage> swap_images_;
+    std::vector<VkImageView> swap_views_;
+    VkFormat swap_format_ = VK_FORMAT_UNDEFINED;
     VkExtent2D swap_extent_{};
     VkSemaphore acquire_sem_ = VK_NULL_HANDLE, render_sem_ = VK_NULL_HANDLE;
 
@@ -431,16 +468,31 @@ bool VulkanRenderer::create_swapchain() {
     sci.oldSwapchain = swapchain_;
     VkSwapchainKHR fresh = VK_NULL_HANDLE;
     if (vkCreateSwapchainKHR(device_, &sci, nullptr, &fresh) != VK_SUCCESS) return false;
+    for (VkImageView view : swap_views_) vkDestroyImageView(device_, view, nullptr);
+    swap_views_.clear();
     if (swapchain_) vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     swapchain_ = fresh;
     swap_extent_ = extent;
+    swap_format_ = chosen.format;
     vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
     swap_images_.resize(count);
     vkGetSwapchainImagesKHR(device_, swapchain_, &count, swap_images_.data());
+    for (VkImage image : swap_images_) {
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = chosen.format;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkImageView view = VK_NULL_HANDLE;
+        vkCreateImageView(device_, &vci, nullptr, &view);
+        swap_views_.push_back(view);
+    }
     return true;
 }
 
 void VulkanRenderer::destroy_swapchain() {
+    for (VkImageView view : swap_views_) vkDestroyImageView(device_, view, nullptr);
+    swap_views_.clear();
     if (swapchain_) vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
     swap_images_.clear();
@@ -581,10 +633,68 @@ bool VulkanRenderer::init(const RendererOptions& options, std::string* error) {
               create_image(capture_, kDisplayWidth, kDisplayHeight, kColorFormat, transfer, false);
     if (!ok) return fail(error, "cannot allocate GPU resources");
 
+    if (!surface_ && options.offscreen_width && options.offscreen_height) {
+        const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer;
+        if (!create_image(offscreen_, options.offscreen_width, options.offscreen_height, kColorFormat, usage, false))
+            return fail(error, "cannot allocate the off-screen output");
+    }
+    load_pipeline_cache();
+    if (options.overlay && (surface_ || offscreen_.image) && !init_overlay(surface_ ? swap_format_ : kColorFormat))
+        return fail(error, "cannot set up the overlay renderer");
+
     begin_commands();
     const u32 white = 0xFFFFFFFFu;
     upload_rgba(white_, &white, 1, 1);
     return true;
+}
+
+bool VulkanRenderer::init_overlay(VkFormat format) {
+    if (!ImGui::GetCurrentContext()) return false;
+    ImGui_ImplVulkan_InitInfo info{};
+    info.ApiVersion = VK_API_VERSION_1_3;
+    info.Instance = instance_;
+    info.PhysicalDevice = physical_;
+    info.Device = device_;
+    info.QueueFamily = queue_family_;
+    info.Queue = queue_;
+    info.DescriptorPoolSize = 256;
+    info.MinImageCount = 2;
+    info.ImageCount = 2;
+    info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    info.PipelineCache = pipeline_cache_;
+    info.UseDynamicRendering = true;
+    info.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
+    overlay_ready_ = ImGui_ImplVulkan_Init(&info);
+    return overlay_ready_;
+}
+
+// The pipeline cache makes every pipeline after the first run cheap to create, so new render
+// states do not hitch.
+void VulkanRenderer::load_pipeline_cache() {
+    std::vector<u8> blob;
+    if (!options_.cache_dir.empty()) read_file(options_.cache_dir / "pipelines.bin", blob);
+    VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    ci.initialDataSize = blob.size();
+    ci.pInitialData = blob.data();
+    if (vkCreatePipelineCache(device_, &ci, nullptr, &pipeline_cache_) != VK_SUCCESS) {
+        // Data from another driver version is rejected: start empty.
+        ci.initialDataSize = 0;
+        ci.pInitialData = nullptr;
+        vkCreatePipelineCache(device_, &ci, nullptr, &pipeline_cache_);
+    }
+}
+
+void VulkanRenderer::save_pipeline_cache() {
+    if (!pipeline_cache_ || options_.cache_dir.empty() || pipelines_.size() == pipelines_at_load_) return;
+    size_t size = 0;
+    if (vkGetPipelineCacheData(device_, pipeline_cache_, &size, nullptr) != VK_SUCCESS || !size) return;
+    std::vector<u8> blob(size);
+    if (vkGetPipelineCacheData(device_, pipeline_cache_, &size, blob.data()) != VK_SUCCESS) return;
+    std::error_code ec;
+    std::filesystem::create_directories(options_.cache_dir, ec);
+    write_file(options_.cache_dir / "pipelines.bin", blob.data(), size);
 }
 
 void VulkanRenderer::shutdown() {
@@ -594,6 +704,20 @@ void VulkanRenderer::shutdown() {
         return;
     }
     vkDeviceWaitIdle(device_);
+    if (overlay_ready_) {
+        for (auto& [handle, tex] : ui_textures_) ui_garbage_.push_back(tex);
+        ui_textures_.clear();
+        for (UiTexture& tex : ui_garbage_) {
+            ImGui_ImplVulkan_RemoveTexture(tex.set);
+            destroy_image(tex.image);
+        }
+        ui_garbage_.clear();
+        ImGui_ImplVulkan_Shutdown();
+        overlay_ready_ = false;
+    }
+    save_pipeline_cache();
+    if (pipeline_cache_) vkDestroyPipelineCache(device_, pipeline_cache_, nullptr);
+    destroy_image(offscreen_);
     for (auto& [key, pipeline] : pipelines_) vkDestroyPipeline(device_, pipeline, nullptr);
     for (auto& [key, tex] : textures_) destroy_image(tex.image);
     for (auto& [addr, fb] : framebuffers_) {
@@ -952,7 +1076,7 @@ VkPipeline VulkanRenderer::get_pipeline(const PipelineKey& key) {
     pci.pDynamicState = &dyn;
     pci.layout = pipeline_layout_;
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline) != VK_SUCCESS)
+    if (vkCreateGraphicsPipelines(device_, pipeline_cache_, 1, &pci, nullptr, &pipeline) != VK_SUCCESS)
         P2_FATAL("cannot create a graphics pipeline");
     pipelines_[key] = pipeline;
     return pipeline;
@@ -1224,6 +1348,132 @@ Image* VulkanRenderer::display_image(const ge::DisplayTarget& target, u32* src_w
     return &raw_display_;
 }
 
+// Builds the final picture in `image`: the game's display scaled to fit, then the overlay.
+void VulkanRenderer::compose(VkImage image, VkImageView view, VkExtent2D extent, VkImageLayout final_layout, Image* source,
+                             u32 src_w, u32 src_h) {
+    end_pass();
+    transition_raw(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkClearColorValue black{};
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd_, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+    if (source) {
+        s32 w = s32(extent.width), h = s32(extent.height);
+        if (fit_ != Fit::Stretch) {
+            // Largest rectangle of the display's aspect ratio that fits, optionally at a whole multiple.
+            f32 factor = std::min(f32(extent.width) / f32(kDisplayWidth), f32(extent.height) / f32(kDisplayHeight));
+            if (fit_ == Fit::Integer && factor >= 1.0f) factor = std::floor(factor);
+            w = s32(f32(kDisplayWidth) * factor);
+            h = s32(f32(kDisplayHeight) * factor);
+        }
+        const s32 x = (s32(extent.width) - w) / 2, y = (s32(extent.height) - h) / 2;
+        transition(*source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        VkImageBlit region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.srcOffsets[1] = {s32(src_w), s32(src_h), 1};
+        region.dstOffsets[0] = {x, y, 0};
+        region.dstOffsets[1] = {x + w, y + h, 1};
+        vkCmdBlitImage(cmd_, source->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &region, smooth_ ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+    }
+
+    ImDrawData* overlay = nullptr;
+    if (overlay_ready_ && overlay_builder_) {
+        ImGui_ImplVulkan_NewFrame();
+        overlay_builder_();
+        overlay = ImGui::GetDrawData();
+        if (overlay && overlay->CmdListsCount == 0) overlay = nullptr;
+    }
+    if (!overlay) {
+        transition_raw(image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, final_layout);
+        return;
+    }
+    for (auto& [handle, tex] : ui_textures_) transition(tex.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transition_raw(image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageView = view;
+    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, extent};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &color;
+    vkCmdBeginRendering(cmd_, &ri);
+    ImGui_ImplVulkan_RenderDrawData(overlay, cmd_);
+    vkCmdEndRendering(cmd_);
+    transition_raw(image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, final_layout);
+}
+
+void VulkanRenderer::set_scale(u32 scale) {
+    scale = std::clamp<u32>(scale, 1, 10);
+    if (scale == scale_) return;
+    // Render targets are tied to the scale: drop them all and let the game redraw.
+    flush();
+    for (auto& [addr, fb] : framebuffers_) {
+        destroy_image(fb.color);
+        destroy_image(fb.depth);
+    }
+    framebuffers_.clear();
+    last_display_ = nullptr;
+    scale_ = scale;
+}
+
+void VulkanRenderer::set_vsync(bool on) {
+    if (options_.vsync == on) return;
+    options_.vsync = on;
+    if (swapchain_) {
+        flush();
+        create_swapchain();
+    }
+}
+
+void VulkanRenderer::output_size(u32& width, u32& height) const {
+    if (surface_) {
+        width = swap_extent_.width;
+        height = swap_extent_.height;
+    } else {
+        width = offscreen_.width;
+        height = offscreen_.height;
+    }
+}
+
+bool VulkanRenderer::capture_output(std::vector<u8>& rgba, u32& width, u32& height) {
+    if (!offscreen_.image || VkDeviceSize(offscreen_.width) * offscreen_.height * 4 > readback_.size) return false;
+    width = offscreen_.width;
+    height = offscreen_.height;
+    transition(offscreen_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyImageToBuffer(cmd_, offscreen_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &region);
+    flush();
+    rgba.assign(readback_.mapped, readback_.mapped + size_t(width) * height * 4);
+    for (size_t i = 3; i < rgba.size(); i += 4) rgba[i] = 255;
+    return true;
+}
+
+u64 VulkanRenderer::create_ui_texture(const u32* rgba, u32 width, u32 height) {
+    if (!overlay_ready_ || !width || !height) return 0;
+    UiTexture tex;
+    const VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (!create_image(tex.image, width, height, kColorFormat, usage, false)) return 0;
+    upload_rgba(tex.image, rgba, width, height);
+    transition(tex.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    tex.set = ImGui_ImplVulkan_AddTexture(samplers_[1 | 2 | 4 | 8], tex.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    const u64 handle = u64(reinterpret_cast<uintptr_t>(tex.set));
+    ui_textures_[handle] = tex;
+    return handle;
+}
+
+void VulkanRenderer::destroy_ui_texture(u64 handle) {
+    auto it = ui_textures_.find(handle);
+    if (it == ui_textures_.end()) return;
+    ui_garbage_.push_back(it->second);
+    ui_textures_.erase(it);
+}
+
 void VulkanRenderer::present(const ge::DisplayTarget& target) {
     u32 src_w = 0, src_h = 0;
     Image* source = display_image(target, &src_w, &src_h);
@@ -1239,31 +1489,10 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
             flush();
             create_swapchain();
         } else if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
-            end_pass();
-            VkImage target_image = swap_images_[index];
-            transition_raw(target_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            VkClearColorValue black{};
-            VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            vkCmdClearColorImage(cmd_, target_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
-            if (source) {
-                // Largest rectangle of the display's aspect ratio that fits the window, centred.
-                f32 fit = std::min(f32(swap_extent_.width) / f32(kDisplayWidth), f32(swap_extent_.height) / f32(kDisplayHeight));
-                s32 w = s32(f32(kDisplayWidth) * fit), h = s32(f32(kDisplayHeight) * fit);
-                s32 x = (s32(swap_extent_.width) - w) / 2, y = (s32(swap_extent_.height) - h) / 2;
-                transition(*source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-                VkImageBlit region{};
-                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.srcOffsets[1] = {s32(src_w), s32(src_h), 1};
-                region.dstOffsets[0] = {x, y, 0};
-                region.dstOffsets[1] = {x + w, y + h, 1};
-                vkCmdBlitImage(cmd_, source->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target_image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
-            }
-            transition_raw(target_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            compose(swap_images_[index], swap_views_[index], swap_extent_, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, source, src_w, src_h);
 
             vkEndCommandBuffer(cmd_);
-            const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
             VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
             si.waitSemaphoreCount = 1;
             si.pWaitSemaphores = &acquire_sem_;
@@ -1287,10 +1516,20 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
             if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR) create_swapchain();
             presented = true;
         }
+    } else if (offscreen_.image) {
+        compose(offscreen_.image, offscreen_.view, {offscreen_.width, offscreen_.height}, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                source, src_w, src_h);
+        offscreen_.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     }
     if (!presented) flush();
 
-    // Housekeeping: drop textures that have not been used for a while. Nothing is in flight here.
+    // Housekeeping. Nothing is in flight here, so resources can be released.
+    for (UiTexture& tex : ui_garbage_) {
+        ImGui_ImplVulkan_RemoveTexture(tex.set);
+        destroy_image(tex.image);
+    }
+    ui_garbage_.clear();
+    // Drop textures that have not been used for a while.
     ++frame_;
     if ((frame_ & 63) == 0) {
         for (auto it = textures_.begin(); it != textures_.end();) {
@@ -1332,7 +1571,7 @@ bool VulkanRenderer::capture(std::vector<u8>& rgba, u32& width, u32& height) {
 
 } // namespace
 
-std::unique_ptr<ge::Renderer> create_vulkan_renderer(const RendererOptions& options, std::string* error) {
+std::unique_ptr<Renderer> create_vulkan_renderer(const RendererOptions& options, std::string* error) {
     auto renderer = std::make_unique<VulkanRenderer>();
     if (!renderer->init(options, error)) return nullptr;
     return renderer;
