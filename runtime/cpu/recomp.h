@@ -127,8 +127,13 @@ P2_INLINE GuestFn lookup_guest_fn(u32 target) {
         [[clang::musttail]] return ::p2::lookup_guest_fn(c->pc)(c, m);                                       \
     } while (0)
 
+// A system call costs about a microsecond on the console. Charging it keeps guest time moving in
+// loops that poll the system (waiting for the frame counter to change, for example).
+#define P2_SYSCALL_CYCLES 333
+
 #define P2_HLE(index, fn)                                                                                    \
     do {                                                                                                     \
+        c->downcount -= P2_SYSCALL_CYCLES;                                                                   \
         if (P2_UNLIKELY(::p2::g_hle_trace)) {                                                                \
             ::p2::rt_hle_enter(c, m, (index));                                                               \
             fn(c, m);                                                                                        \

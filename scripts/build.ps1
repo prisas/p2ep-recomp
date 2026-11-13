@@ -29,6 +29,14 @@ Enter-DevShell
 
 $configure = @("--preset", $Preset)
 if ($Fresh) { $configure += "--fresh" }
+
+# Some third-party packages cannot be built under a path that contains spaces. When this checkout
+# lives in one, their build and install trees go to a space-free folder in the local app data.
+$packages = Join-Path $root "build"
+if ($root -match " ") { $packages = Join-Path $env:LOCALAPPDATA "p2ep-build" }
+$packages = $packages -replace "\\", "/"
+$configure += "-DVCPKG_INSTALLED_DIR=$packages/vcpkg_installed"
+$configure += "-DVCPKG_INSTALL_OPTIONS=--x-buildtrees-root=$packages/vcpkg_buildtrees;--x-packages-root=$packages/vcpkg_packages"
 if ($Image) {
     $resolved = (Resolve-Path -LiteralPath $Image).Path -replace "\\", "/"
     $configure += "-DP2EP_IMAGE=$resolved"

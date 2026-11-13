@@ -36,7 +36,9 @@ void emit(Level level, const char* channel, const char* fmt, va_list args) {
     int n = std::vsnprintf(buffer, sizeof(buffer), fmt, args);
     if (n < 0) return;
     std::lock_guard lock(g_mutex);
-    std::fprintf(stderr, "[%s %s] %s\n", level_tag(level), channel, buffer);
+    // With a log file open, routine messages go only there (the console is unbuffered and would
+    // slow a verbose trace to a crawl); warnings and errors always reach the console too.
+    if (!g_file || level >= Level::Warn) std::fprintf(stderr, "[%s %s] %s\n", level_tag(level), channel, buffer);
     if (g_file) {
         std::fprintf(g_file, "[%s %s] %s\n", level_tag(level), channel, buffer);
         if (level >= Level::Warn) std::fflush(g_file);
@@ -74,6 +76,7 @@ bool open_file(const std::string& path) {
     std::lock_guard lock(g_mutex);
     if (g_file) std::fclose(g_file);
     g_file = std::fopen(path.c_str(), "w");
+    if (g_file) std::setvbuf(g_file, nullptr, _IOFBF, 1 << 20);
     return g_file != nullptr;
 }
 

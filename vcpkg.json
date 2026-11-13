@@ -11,6 +11,11 @@
             "name": "glslang",
             "features": ["tools"]
         },
-        "stb"
+        "stb",
+        {
+            "name": "ffmpeg",
+            "default-features": false,
+            "features": ["avcodec", "swscale", "swresample"]
+        }
     ]
 }

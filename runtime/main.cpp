@@ -2,6 +2,7 @@
 #include "lib/common/hash.h"
 #include "lib/common/log.h"
 #include "lib/psp/prx.h"
+#include "runtime/audio/audio_out.h"
 #include "runtime/cpu/recomp.h"
 #include "runtime/cpu/rt.h"
 #include "runtime/ge/ge.h"
@@ -40,6 +41,8 @@ int usage() {
               "  --frames <n>          quit after n displayed frames\n"
               "  --dump-frames <dir>   write displayed frames as PNG files\n"
               "  --dump-every <n>      ... every nth frame (default 60)\n"
+              "  --dump-textures <dir> write every decoded texture as a PNG file\n"
+              "  --dump-audio <file>   record the game's audio output to a WAV file\n"
               "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,...\n"
               "  --no-gpu              do not create a renderer (system-call testing only)\n"
               "  --log <channels>      comma-separated trace channels: hle,io,thread,mem,display,ge,audio,all\n"
@@ -131,7 +134,7 @@ int main(int argc, char** argv) {
     host::Options& opt = host::options();
     opt.user_dir = "userdata";
     opt.dump_every = 60;
-    std::string channels, log_file;
+    std::string channels, log_file, audio_dump;
     bool verbose = false, no_gpu = false;
     u32 scale = 1;
 
@@ -146,6 +149,7 @@ int main(int argc, char** argv) {
         else if (a == "--dump-frames") opt.dump_dir = value();
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--dump-textures") opt.texture_dump_dir = value();
+        else if (a == "--dump-audio") audio_dump = value();
         else if (a == "--input") host::set_input_script(value());
         else if (a == "--no-gpu") no_gpu = true;
         else if (a == "--log") channels = value();
@@ -183,6 +187,8 @@ int main(int argc, char** argv) {
         }
     }
     ge::init(g_renderer.get());
+    audio::output_init();
+    if (!audio_dump.empty() && !audio::output_record(audio_dump)) std::fprintf(stderr, "cannot write %s\n", audio_dump.c_str());
     if (!boot(&error)) {
         std::fprintf(stderr, "error: %s\n", error.c_str());
         return 1;
@@ -195,6 +201,7 @@ int main(int argc, char** argv) {
              static_cast<unsigned long long>(gs.lists), static_cast<unsigned long long>(gs.draws),
              static_cast<unsigned long long>(gs.vertices));
     g_renderer.reset();
+    audio::output_shutdown();
     host::window_shutdown();
     return kernel::exit_code();
 }
