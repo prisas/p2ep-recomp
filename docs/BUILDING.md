@@ -49,6 +49,12 @@ Explorer, the taskbar and the window's title bar show. The image is centre-cropp
 The `icon` folder is ignored by Git, like the disc image. Without an image the program has no icon
 of its own.
 
+**Launcher background.** Likewise, a PNG or JPEG in a folder named `background` (or
+`-DP2EP_BACKGROUND=<image>`) is embedded in `p2ep.exe` and shown behind the launcher, filling the
+window with its shape kept (anything cut off comes from the left and evenly from top and bottom)
+under a dark veil that keeps the text readable. The `background` folder is ignored by Git too.
+Without an image the launcher has a plain dark background.
+
 If the repository lives in a folder whose path contains a space, the third-party libraries are
 built under `%LOCALAPPDATA%\p2ep-build` instead of the build folder, because some of them cannot
 be built in such a path.

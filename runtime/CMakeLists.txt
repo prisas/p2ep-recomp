@@ -85,22 +85,28 @@ add_dependencies(p2ep p2_game_code_generate)
 set_target_properties(p2ep PROPERTIES WIN32_EXECUTABLE TRUE)
 target_link_options(p2ep PRIVATE "/ENTRY:wmainCRTStartup")
 
-# The program's icon. The image lives outside version control, like the disc image: P2EP_ICON, or
-# else the first PNG or JPEG in icon/ at the top of the repository. It is converted to a Windows
-# icon at build time and embedded as resource 1, which Explorer, the taskbar and the window use.
-set(icon_image "${P2EP_ICON}")
-if(NOT icon_image)
-    file(GLOB icon_candidates LIST_DIRECTORIES false
-        "${CMAKE_SOURCE_DIR}/icon/*.png" "${CMAKE_SOURCE_DIR}/icon/*.jpg" "${CMAKE_SOURCE_DIR}/icon/*.jpeg")
-    if(icon_candidates)
-        list(SORT icon_candidates)
-        list(GET icon_candidates 0 icon_image)
+# Artwork embedded in the program. The images live outside version control, like the disc image:
+# the variable given, or else the first PNG or JPEG in the folder named at the top of the repository.
+function(p2ep_find_image out variable folder)
+    set(image "${${variable}}")
+    if(NOT image)
+        file(GLOB candidates LIST_DIRECTORIES false
+            "${CMAKE_SOURCE_DIR}/${folder}/*.png" "${CMAKE_SOURCE_DIR}/${folder}/*.jpg" "${CMAKE_SOURCE_DIR}/${folder}/*.jpeg")
+        if(candidates)
+            list(SORT candidates)
+            list(GET candidates 0 image)
+        endif()
     endif()
-endif()
+    set(${out} "${image}" PARENT_SCOPE)
+endfunction()
+set(resources "")
+set(resource_files "")
+
+# The program's icon (P2EP_ICON or icon/): converted to a Windows icon at build time and embedded as
+# resource 1, which Explorer, the taskbar and the window use.
+p2ep_find_image(icon_image P2EP_ICON icon)
 if(icon_image)
-    enable_language(RC)
     set(icon_file "${CMAKE_CURRENT_BINARY_DIR}/p2ep.ico")
-    set(icon_rc "${CMAKE_CURRENT_BINARY_DIR}/p2ep.rc")
     add_custom_command(
         OUTPUT "${icon_file}"
         COMMAND p2_make_icon "${icon_image}" "${icon_file}"
@@ -108,13 +114,32 @@ if(icon_image)
         COMMENT "Making the program icon"
         VERBATIM)
     file(TO_CMAKE_PATH "${icon_file}" icon_file_rc)
-    file(WRITE "${icon_rc}.in" "1 ICON \"${icon_file_rc}\"\n")
-    configure_file("${icon_rc}.in" "${icon_rc}" COPYONLY)
-    set_source_files_properties("${icon_rc}" PROPERTIES OBJECT_DEPENDS "${icon_file}")
-    target_sources(p2ep PRIVATE "${icon_rc}")
+    string(APPEND resources "1 ICON \"${icon_file_rc}\"\n")
+    list(APPEND resource_files "${icon_file}")
     message(STATUS "Program icon: ${icon_image}")
 else()
     message(STATUS "Program icon: none (put a PNG or JPEG in icon/ to have one)")
+endif()
+
+# The launcher's background picture (P2EP_BACKGROUND or background/): embedded as it is, as raw data
+# resource 2, and decoded when the launcher opens.
+p2ep_find_image(background_image P2EP_BACKGROUND background)
+if(background_image)
+    file(TO_CMAKE_PATH "${background_image}" background_rc)
+    string(APPEND resources "2 RCDATA \"${background_rc}\"\n")
+    list(APPEND resource_files "${background_image}")
+    message(STATUS "Launcher background: ${background_image}")
+else()
+    message(STATUS "Launcher background: none (put a PNG or JPEG in background/ to have one)")
+endif()
+
+if(resources)
+    enable_language(RC)
+    set(resource_rc "${CMAKE_CURRENT_BINARY_DIR}/p2ep.rc")
+    file(WRITE "${resource_rc}.in" "${resources}")
+    configure_file("${resource_rc}.in" "${resource_rc}" COPYONLY)
+    set_source_files_properties("${resource_rc}" PROPERTIES OBJECT_DEPENDS "${resource_files}")
+    target_sources(p2ep PRIVATE "${resource_rc}")
 endif()
 target_include_directories(p2ep PRIVATE
     "${CMAKE_BINARY_DIR}/generated" "${shader_dir}" ${Stb_INCLUDE_DIR} ${FFMPEG_INCLUDE_DIRS})

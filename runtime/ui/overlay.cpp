@@ -22,6 +22,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Weverything"
 #include <stb_image.h>
