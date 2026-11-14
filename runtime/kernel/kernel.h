@@ -140,7 +140,6 @@ bool init(std::string* error);
 
 // Null while the scheduler itself or an interrupt handler runs.
 Thread* current_thread();
-bool in_interrupt();
 
 Uid create_thread(const std::string& name, u32 entry, s32 priority, u32 stack_size, u32 attr, u32* error);
 u32 start_thread(Uid uid, u32 arg_size, u32 arg_ptr);
@@ -159,8 +158,6 @@ s32 wait_current_for(WaitType type, Uid id, u64 timeout_us, bool callbacks);
 bool wake_thread(Thread* thread, s32 result);
 // Lets a higher-priority ready thread take over. Safe to call anywhere; deferred inside interrupts.
 void reschedule();
-// Moves the caller to the back of its priority level.
-void yield_current();
 
 // Called by recompiled code when its time slice is used up: delivers due events and lets other
 // threads run.
@@ -169,7 +166,6 @@ void on_slice_end(Cpu* cpu);
 // Runs the scheduler until the guest asks to quit or `stop` is requested.
 void run();
 void request_stop(int exit_code);
-bool stop_requested();
 int exit_code();
 
 // --- guest calls from host code ---------------------------------------------------------------------------------
@@ -184,8 +180,6 @@ u32 call_guest_interrupt(u32 entry, u32 a0, u32 a1 = 0, u32 a2 = 0);
 
 Uid create_callback(const std::string& name, u32 entry, u32 common_arg);
 u32 delete_callback(Uid uid);
-// Queues the callback for its owner thread with `arg`; it runs when that thread next allows callbacks.
-u32 notify_callback(Uid uid, u32 arg);
 // Runs the pending callbacks of the current thread. Returns true if any ran.
 bool run_pending_callbacks();
 

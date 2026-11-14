@@ -16,7 +16,7 @@ using namespace p2::kernel;
 
 namespace {
 
-constexpr u32 kOpenRead = 0x0001, kOpenWrite = 0x0002, kOpenAppend = 0x0100, kOpenCreate = 0x0200,
+constexpr u32 kOpenWrite = 0x0002, kOpenAppend = 0x0100, kOpenCreate = 0x0200,
               kOpenTruncate = 0x0400, kOpenExclusive = 0x0800;
 constexpr int kFirstFd = 3, kMaxFd = 64;
 constexpr u64 kAsyncDelayUs = 100;

@@ -16,8 +16,6 @@ using f32 = float;
 using f64 = double;
 
 #define P2_INLINE __attribute__((always_inline)) inline
-#define P2_NOINLINE __attribute__((noinline))
-#define P2_COLD __attribute__((cold))
 #define P2_LIKELY(x) __builtin_expect(!!(x), 1)
 #define P2_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #define P2_RESTRICT __restrict

@@ -73,7 +73,7 @@ Dialog g_savedata, g_msg, g_install;
 constexpr u32 kOffResult = 0x1C, kOffMode = 0x30, kOffGameName = 0x3C, kOffSaveName = 0x4C, kOffSaveNameList = 0x60,
               kOffFileName = 0x64, kOffDataBuf = 0x74, kOffDataBufSize = 0x78, kOffDataSize = 0x7C, kOffSfoTitle = 0x80,
               kOffSfoSaveTitle = 0x100, kOffSfoDetail = 0x180, kOffSfoParental = 0x580, kOffIcon0 = 0x584,
-              kOffIcon1 = 0x594, kOffPic1 = 0x5A4, kOffSnd0 = 0x5B4, kOffNewData = 0x5C4, kOffFocus = 0x5C8,
+              kOffIcon1 = 0x594, kOffPic1 = 0x5A4, kOffSnd0 = 0x5B4, kOffFocus = 0x5C8,
               kOffMsFree = 0x5D0, kOffMsData = 0x5D4, kOffUtilityData = 0x5D8, kOffIdList = 0x5F4, kOffFileList = 0x5F8,
               kOffSizeInfo = 0x5FC;
 

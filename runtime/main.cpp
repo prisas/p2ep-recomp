@@ -51,8 +51,7 @@ int usage() {
               "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,... (or @file)\n"
               "  --no-gpu              do not create a renderer (system-call testing only)\n"
               "  --log <channels>      comma-separated trace channels: hle,io,thread,mem,display,ge,audio,all\n"
-              "  --log-file <path>     also write the log to a file\n"
-              "  --verbose             include debug messages");
+              "  --log-file <path>     also write the log to a file");
     return 2;
 }
 
@@ -154,7 +153,7 @@ int main(int argc, char** argv) {
     opt.user_dir = "userdata";
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
-    bool verbose = false, no_gpu = false, fullscreen = false, skip_intro = false;
+    bool no_gpu = false, fullscreen = false, skip_intro = false;
     u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
@@ -208,7 +207,6 @@ int main(int argc, char** argv) {
         else if (a == "--no-gpu") no_gpu = true;
         else if (a == "--log") channels = value();
         else if (a == "--log-file") log_file = value();
-        else if (a == "--verbose") verbose = true;
         else if (a == "--help" || a == "-h") return usage();
         else if (!a.empty() && a[0] != '-' && opt.image.empty()) opt.image = a;
         else {
@@ -218,7 +216,6 @@ int main(int argc, char** argv) {
     }
     if (opt.image.empty()) return usage();
 
-    log::set_level(verbose ? log::Level::Debug : log::Level::Info);
     if (opt.late_from) opt.late_channels = channels;
     else if (!channels.empty()) log::enable_channels(channels);
     if (!log_file.empty() && !log::open_file(log_file)) std::fprintf(stderr, "cannot open log file %s\n", log_file.c_str());

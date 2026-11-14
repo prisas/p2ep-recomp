@@ -141,11 +141,10 @@ struct TextureKeyHash {
 };
 
 struct PipelineKey {
-    u8 topology = 0;
     u8 blend = 0, blend_src = 0, blend_dst = 0, blend_eq = 0;
     u8 color_mask = 0;
     u8 depth_test = 0, depth_write = 0, depth_func = 0;
-    u8 pad[7] = {};
+    u8 pad[8] = {};
     bool operator==(const PipelineKey& o) const { return std::memcmp(this, &o, sizeof(*this)) == 0; }
 };
 
@@ -159,7 +158,6 @@ struct PipelineKeyHash {
 };
 static_assert(sizeof(PipelineKey) == 16);
 
-// Fast non-cryptographic hash for change detection of texture data.
 void unpack_color(u32 c, f32 out[4]) {
     out[0] = f32(c & 0xFF) / 255.0f;
     out[1] = f32((c >> 8) & 0xFF) / 255.0f;
@@ -187,7 +185,7 @@ public:
     u64 create_ui_texture(const u32* rgba, u32 width, u32 height) override;
     void destroy_ui_texture(u64 handle) override;
 
-    void draw(const DrawState& state, ge::Topology topology, const ge::Vertex* vertices, u32 vertex_count,
+    void draw(const DrawState& state, const ge::Vertex* vertices, u32 vertex_count,
               const u16* indices, u32 index_count) override;
     void block_transfer(u32 src_addr, u32 src_stride, u32 src_x, u32 src_y, u32 dst_addr, u32 dst_stride, u32 dst_x,
                         u32 dst_y, u32 width, u32 height, u32 bytes_per_pixel) override;
@@ -1062,9 +1060,7 @@ VkPipeline VulkanRenderer::get_pipeline(const PipelineKey& key) {
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = key.topology == u8(ge::Topology::Triangles) ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-                  : key.topology == u8(ge::Topology::Lines) ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST
-                                                            : VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // points, lines and sprites arrive as triangles
 
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     vp.viewportCount = 1;
@@ -1155,7 +1151,7 @@ VkPipeline VulkanRenderer::get_pipeline(const PipelineKey& key) {
 
 // --- drawing ----------------------------------------------------------------------------------------------------
 
-void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::Vertex* vertices, u32 vertex_count,
+void VulkanRenderer::draw(const DrawState& s, const ge::Vertex* vertices, u32 vertex_count,
                           const u16* indices, u32 index_count) {
     const VkDeviceSize vbytes = VkDeviceSize(vertex_count) * sizeof(ge::Vertex), ibytes = VkDeviceSize(index_count) * 2;
     if (slot().vertex.used + vbytes > slot().vertex.size || slot().index.used + ibytes > slot().index.size) flush();
@@ -1203,7 +1199,6 @@ void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::V
     if (x2 <= x1 || y2 <= y1) return;
 
     PipelineKey key;
-    key.topology = u8(topology);
     PushConstants pc{};
     pc.pixel_to_ndc[0] = 2.0f / f32(fb->width);
     pc.pixel_to_ndc[1] = 2.0f / f32(fb->height);

@@ -26,8 +26,9 @@ constexpr s64 kVideoFrameTicks = 3003;    // 29.97 pictures per second on a 90 k
 constexpr u32 kAudioFrameSamples = 2048;
 
 // Ring-buffer structure offsets.
-constexpr u32 kRbPackets = 0, kRbRead = 4, kRbWritten = 8, kRbAvail = 12, kRbPackSize = 16, kRbData = 20, kRbCallback = 24,
-              kRbCallbackArg = 28, kRbDataEnd = 32, kRbSema = 36, kRbMpeg = 40;
+// (Offsets 12 and 36 hold fields the game reads and writes itself.)
+constexpr u32 kRbPackets = 0, kRbRead = 4, kRbWritten = 8, kRbPackSize = 16, kRbData = 20, kRbCallback = 24,
+              kRbCallbackArg = 28, kRbDataEnd = 32, kRbMpeg = 40;
 
 struct Movie {
     bool created = false;

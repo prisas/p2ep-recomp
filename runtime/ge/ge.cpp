@@ -564,7 +564,6 @@ void draw_primitive(u32 prim_type, u32 count) {
 
     g_indices.clear();
     g_out_vertices.clear();
-    Topology topology = Topology::Triangles;
     const bool cull = s.cull_enabled() && !layout.through && !draw.clear_mode;
     const bool keep_clockwise = s.cull_ccw();
 
@@ -712,9 +711,9 @@ void draw_primitive(u32 prim_type, u32 count) {
 
     if (g_indices.empty()) return;
     if (expanded)
-        g_renderer->draw(draw, topology, g_out_vertices.data(), u32(g_out_vertices.size()), g_indices.data(), u32(g_indices.size()));
+        g_renderer->draw(draw, g_out_vertices.data(), u32(g_out_vertices.size()), g_indices.data(), u32(g_indices.size()));
     else
-        g_renderer->draw(draw, topology, g_vertices.data(), count, g_indices.data(), u32(g_indices.size()));
+        g_renderer->draw(draw, g_vertices.data(), count, g_indices.data(), u32(g_indices.size()));
 }
 
 void block_transfer() {

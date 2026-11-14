@@ -233,7 +233,6 @@ void cancel_event(u32 handle) {
 // --- threads --------------------------------------------------------------------------------------------------
 
 Thread* current_thread() { return g_interrupt_depth ? nullptr : g_current; }
-bool in_interrupt() { return g_interrupt_depth != 0; }
 
 Uid create_thread(const std::string& name, u32 entry, s32 priority, u32 stack_size, u32 attr, u32* error) {
     stack_size = align_up<u32>(stack_size, 0x100);
@@ -428,14 +427,6 @@ void reschedule() {
     suspend_current();
 }
 
-void yield_current() {
-    if (g_interrupt_depth || !g_current) return;
-    Thread* best = pick_ready();
-    if (!best || best->priority > g_current->priority) return;
-    make_ready(g_current);
-    suspend_current();
-}
-
 void on_slice_end(Cpu* cpu) {
     sync_clock();
     if (g_interrupt_depth) { // handlers run to completion; just keep the clock moving
@@ -488,7 +479,6 @@ void request_stop(int code) {
     }
 }
 
-bool stop_requested() { return g_stop; }
 int exit_code() { return g_exit_code; }
 
 // --- guest calls from host code ---------------------------------------------------------------------------------
@@ -566,20 +556,6 @@ u32 delete_callback(Uid uid) {
         pending.erase(std::remove(pending.begin(), pending.end(), uid), pending.end());
     }
     destroy_object(uid);
-    return kOk;
-}
-
-u32 notify_callback(Uid uid, u32 arg) {
-    Callback* cb = get<Callback>(uid);
-    if (!cb) return kErrUnknownCbid;
-    Thread* owner = get<Thread>(cb->owner);
-    if (!owner) return kErrUnknownThid;
-    ++cb->notify_count;
-    cb->notify_arg = arg;
-    auto& pending = owner->pending_callbacks;
-    if (std::find(pending.begin(), pending.end(), uid) == pending.end()) pending.push_back(uid);
-    // A thread in a callback-aware wait wakes up just long enough to run it.
-    if (owner->state == ThreadState::Waiting && owner->wait_callbacks) make_ready(owner);
     return kOk;
 }
 

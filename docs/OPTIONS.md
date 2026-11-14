@@ -98,7 +98,6 @@ The user folder holds:
 | `--trace-frame <frame>` | Log every draw of one frame with the state that shapes it. |
 | `--watch <addr>:<bytes>@<frame>` | From a frame on, log every write to a range of game memory (hexadecimal address) with the thread that made it; the `dev` build adds the game's call chain. |
 | `--dump-ram <file>@<frame>` | Write the game's main memory to a file at a frame. |
-| `--verbose` | Include debug-level messages. |
 
 Button bits for `--input`: Select `0001`, Start `0008`, Up `0010`, Right `0020`, Down `0040`,
 Left `0080`, L `0100`, R `0200`, Triangle `1000`, Circle `2000`, Cross `4000`, Square `8000`.

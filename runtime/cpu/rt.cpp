@@ -22,8 +22,6 @@ void init_dispatch() {
 
 void refresh_hle_trace() { g_hle_trace = log::channel_enabled("hle"); }
 
-GuestFn guest_function(u32 addr) { return lookup_guest_fn(addr); }
-
 void rt_slice(Cpu* c, u8*) { kernel::on_slice_end(c); }
 
 void rt_dispatch_miss(Cpu* c, u8*) {

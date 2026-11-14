@@ -91,8 +91,6 @@ struct DrawState {
     bool flat_shade = false;
 };
 
-enum class Topology : u8 { Triangles, Lines, Points };
-
 // What sceDisplaySetFrameBuf last selected for scan-out.
 struct DisplayTarget {
     u32 addr = 0;
@@ -104,8 +102,9 @@ class Renderer {
 public:
     virtual ~Renderer() = default;
 
-    virtual void draw(const DrawState& state, Topology topology, const Vertex* vertices, u32 vertex_count,
-                      const u16* indices, u32 index_count) = 0;
+    // Indexed triangles: the processor turns every primitive type into triangles first.
+    virtual void draw(const DrawState& state, const Vertex* vertices, u32 vertex_count, const u16* indices,
+                      u32 index_count) = 0;
 
     // Copies a rectangle of pixels between two guest buffers (either may be a render target).
     virtual void block_transfer(u32 src_addr, u32 src_stride, u32 src_x, u32 src_y, u32 dst_addr, u32 dst_stride,

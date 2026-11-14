@@ -21,7 +21,6 @@ constexpr u32 kMaxIds = 6;
 constexpr u32 kErrNoAtracId = 0x80630003;
 constexpr u32 kErrBadAtracId = 0x80630005;
 constexpr u32 kErrUnknownFormat = 0x80630006;
-constexpr u32 kErrNoData = 0x80630010;
 constexpr u32 kErrSizeTooSmall = 0x80630011;
 constexpr u32 kErrBadSample = 0x80630015;
 constexpr u32 kErrAddDataTooBig = 0x80630018;

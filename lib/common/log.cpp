@@ -24,8 +24,6 @@ std::chrono::steady_clock::time_point g_last_flush;
 
 const char* level_tag(Level level) {
     switch (level) {
-    case Level::Trace: return "T";
-    case Level::Debug: return "D";
     case Level::Info: return "I";
     case Level::Warn: return "W";
     case Level::Error: return "E";
@@ -55,7 +53,6 @@ void emit(Level level, const char* channel, const char* fmt, va_list args) {
 
 } // namespace
 
-void set_level(Level level) { g_level.store(level, std::memory_order_relaxed); }
 Level level() { return g_level.load(std::memory_order_relaxed); }
 
 void enable_channels(const std::string& comma_separated) {

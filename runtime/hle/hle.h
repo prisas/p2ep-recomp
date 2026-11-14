@@ -30,18 +30,6 @@
         return;                                                                                              \
     } while (0)
 
-// For calls whose behaviour is not implemented yet: logs once per call site and returns `value`.
-#define HLE_STUB(name, value)                                                                                \
-    HLE(name) {                                                                                              \
-        static bool p2_warned_ = false;                                                                      \
-        if (!p2_warned_) {                                                                                   \
-            p2_warned_ = true;                                                                               \
-            LOG_WARN("hle", "unimplemented: " #name "(%08x, %08x, %08x, %08x)", ARG(0), ARG(1), ARG(2),      \
-                     ARG(3));                                                                                \
-        }                                                                                                    \
-        RET(value);                                                                                          \
-    }
-
 namespace p2::hle {
 
 // Common error codes outside the kernel range.

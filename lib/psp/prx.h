@@ -13,7 +13,6 @@ constexpr u32 kDefaultLoadBase = 0x08804000;
 
 constexpr u32 kNidModuleStart = 0xD632ACDB;
 constexpr u32 kNidModuleStop = 0xCEE8593C;
-constexpr u32 kNidModuleInfo = 0xF01D73A7;
 constexpr u32 kNidModuleSdkVersion = 0x11B97506;
 constexpr u32 kNidModuleStartThreadParameter = 0x0F7C276C;
 

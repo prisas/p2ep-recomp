@@ -6,10 +6,9 @@
 
 namespace p2::log {
 
-enum class Level : u8 { Trace, Debug, Info, Warn, Error, Off };
+enum class Level : u8 { Info, Warn, Error, Off };
 
 // Channels can be enabled individually (for example "hle,ge") on top of the global level.
-void set_level(Level level);
 Level level();
 void enable_channels(const std::string& comma_separated);
 bool channel_enabled(const char* channel);
@@ -29,8 +28,6 @@ void set_fatal_hook(void (*hook)());
             ::p2::log::write(lvl, ch, __VA_ARGS__);                                                          \
     } while (0)
 
-#define LOG_TRACE(ch, ...) LOG_AT(::p2::log::Level::Trace, ch, __VA_ARGS__)
-#define LOG_DEBUG(ch, ...) LOG_AT(::p2::log::Level::Debug, ch, __VA_ARGS__)
 #define LOG_INFO(ch, ...) LOG_AT(::p2::log::Level::Info, ch, __VA_ARGS__)
 #define LOG_WARN(ch, ...) LOG_AT(::p2::log::Level::Warn, ch, __VA_ARGS__)
 #define LOG_ERROR(ch, ...) LOG_AT(::p2::log::Level::Error, ch, __VA_ARGS__)
