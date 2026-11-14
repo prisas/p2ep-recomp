@@ -5,9 +5,13 @@ translated to C++ ahead of time and compiled into an ordinary 64-bit program; a 
 runtime replaces the console's system software. There is no interpreter or JIT compiler in the
 loop.
 
-**No game code or data is included.** You need your own disc image of the game. The build
-translates the executable in your image on your machine, and the finished program reads the same
-image for its data.
+> [!IMPORTANT]
+>**No game code or data is included.** You need your own disc image of the game. The build
+>translates the executable in your image on your machine, and the finished program reads the same
+>image for its data.
+>
+> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not
+> share it.
 
 ## Supported game build
 
