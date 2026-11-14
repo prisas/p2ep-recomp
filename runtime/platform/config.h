@@ -15,6 +15,9 @@ extern const u32 kPadButtonBits[kPadButtonCount];
 extern const char* const kPadButtonNames[kPadButtonCount];
 
 struct Settings {
+    // general
+    bool skip_intro = false;    // start at the main menu: notices, logos and the opening movie skipped
+
     // video
     u32 scale = 0;              // internal resolution multiplier, 1-10; 0 follows the window size
     bool fullscreen = false;
@@ -34,6 +37,7 @@ struct Settings {
     // For this run only, from the command line; never written to the settings file.
     u32 run_scale = 0;          // overrides `scale` when not zero
     bool run_unthrottled = false; // no waiting for the display
+    bool run_skip_intro = false;  // skip the intro this time, whatever `skip_intro` says
 
     Settings();
     void reset_keys();

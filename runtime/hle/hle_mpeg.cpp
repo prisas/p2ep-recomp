@@ -59,6 +59,7 @@ struct Movie {
 };
 
 Movie g_movie;
+u32 g_movies_finished = 0;
 
 s64 read_pts(const u8* p) {
     return (s64((p[0] >> 1) & 7) << 30) | (s64(p[1]) << 22) | (s64(p[2] >> 1) << 15) | (s64(p[3]) << 7) | s64(p[4] >> 1);
@@ -193,8 +194,11 @@ HLE(sceMpegCreate) {
 HLE(sceMpegDelete) {
     g_movie.created = false;
     g_movie.reset_streams();
+    ++g_movies_finished;
     RET(0);
 }
+
+u32 p2::hle::movies_finished() { return g_movies_finished; }
 
 // (handle, header buffer, &offset): where the stream data starts in the file.
 HLE(sceMpegQueryStreamOffset) {

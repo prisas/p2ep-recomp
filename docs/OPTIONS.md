@@ -30,10 +30,12 @@ Circle cancels.
 
 ## Settings menu
 
-Esc opens the menu over the paused game. It works with the mouse, the keyboard or a gamepad.
+Esc opens the menu over the paused game. It works with the mouse, the keyboard or a gamepad. Its
+tabs are General, Video, Audio, Controls and Help.
 
 | Setting | Meaning |
 |---|---|
+| Skip the intro at start-up | Off by default. When on, the game starts at the main menu: the start-up notices, the logos and the opening movie are skipped (the window stays black for about a second meanwhile, then the title fades in with its music). Takes effect the next time the game starts. Left idle on the main menu, the game still replays its intro as it does on the console. |
 | Rendering resolution | The resolution the game is drawn at: a multiple of the console's 480x272, from 1x to 10x, or *Match the window* (the default), which picks the smallest multiple that fills the window. |
 | Picture size | *Fit the window* keeps the picture's shape and makes it as large as fits; *Whole multiples only* additionally limits it to exact multiples of 480x272; *Stretch to fill* ignores the shape. |
 | Smooth scaling | Filter the picture when it is scaled to the window. Off gives hard pixel edges. |
@@ -64,6 +66,7 @@ Where the console would show its own screens, the program shows its own:
 | `--user-dir <dir>` | Where saves, settings and caches are kept. Default: `userdata` next to where the program is started. |
 | `--scale <n>` | Rendering resolution multiplier from 1 to 10 for this run, overriding the saved setting. |
 | `--fullscreen` | Start in full screen. |
+| `--skip-intro` | Start at the main menu this time, whatever the setting says. |
 | `--unthrottled` | Do not pace the game to real time and do not wait for the display. |
 
 The user folder holds:

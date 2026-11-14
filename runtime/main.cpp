@@ -39,6 +39,7 @@ int usage() {
               "  --user-dir <dir>      where saves and settings are kept (default: ./userdata)\n"
               "  --scale <n>           rendering resolution multiplier, 1-10 (default: match the window)\n"
               "  --fullscreen          start in full screen\n"
+              "  --skip-intro          start at the main menu this time, skipping notices, logos and movie\n"
               "  --headless            run without a window or audio device\n"
               "  --overlay             with --headless: draw the overlay and let scripted input answer dialogs\n"
               "  --unthrottled         do not pace the game to real time\n"
@@ -153,7 +154,7 @@ int main(int argc, char** argv) {
     opt.user_dir = "userdata";
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
-    bool verbose = false, no_gpu = false, fullscreen = false;
+    bool verbose = false, no_gpu = false, fullscreen = false, skip_intro = false;
     u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
@@ -162,6 +163,7 @@ int main(int argc, char** argv) {
         if (a == "--user-dir") opt.user_dir = value();
         else if (a == "--scale") scale = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--fullscreen") fullscreen = true;
+        else if (a == "--skip-intro") skip_intro = true;
         else if (a == "--headless") opt.headless = true;
         else if (a == "--overlay") opt.overlay = true;
         else if (a == "--show-menu") { // <frame>[:<tab>]
@@ -227,6 +229,7 @@ int main(int argc, char** argv) {
     host::load_settings(opt.user_dir / "settings.ini");
     host::Settings& settings = host::settings();
     settings.run_scale = std::min<u32>(scale, 10);
+    settings.run_skip_intro = skip_intro;
     settings.run_unthrottled = opt.unthrottled;
     if (fullscreen) settings.fullscreen = true;
 

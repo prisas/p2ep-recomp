@@ -4,9 +4,11 @@
 
 #include "lib/common/file.h"
 #include "lib/common/log.h"
+#include "runtime/audio/audio_out.h"
 #include "runtime/cpu/rt.h"
 #include "runtime/ge/ge.h"
 #include "runtime/gfx/vk/vk_renderer.h"
+#include "runtime/hle/hle.h"
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
@@ -93,6 +95,50 @@ void dump_frame() {
     stbi_write_png(path.c_str(), int(w), int(h), 4, pixels.data(), int(w) * 4);
 }
 
+// --- skipping the intro ---------------------------------------------------------------------------------------
+// The game lets the player skip each of its start-up screens (notices, logos, the opening movie)
+// with Start, and shows the main menu by itself once the movie is gone. With the setting on, the
+// program presses Start for the player and runs at full speed behind a blank window until the game
+// shuts the opening movie down; the title then fades in at normal speed, with its music.
+
+enum class Intro : u8 { Undecided, Skipping, Done };
+Intro g_intro = Intro::Undecided;
+
+constexpr u64 kIntroPressPeriod = 20; // frames between presses of Start ...
+constexpr u64 kIntroPressLength = 4;  // ... each held this long
+constexpr u64 kIntroGiveUp = 7200;    // two minutes of game time: show whatever there is
+
+void set_intro_skipping(bool on) {
+    if (g_renderer) g_renderer->set_output_visible(!on);
+    audio::output_set_muted(on);
+    if (!on) set_injected_buttons(0);
+}
+
+// Called before the frame's input is read.
+void update_intro_skip() {
+    if (g_intro == Intro::Undecided) {
+        const Settings& s = settings();
+        g_intro = s.skip_intro || s.run_skip_intro ? Intro::Skipping : Intro::Done;
+        if (g_intro == Intro::Skipping) {
+            set_intro_skipping(true);
+            LOG_INFO("boot", "skipping the intro");
+        }
+    }
+    if (g_intro != Intro::Skipping) return;
+
+    const char* why = nullptr;
+    if (hle::movies_finished() > 0) why = "the opening movie is over";
+    else if (ui::captures_pad() || ui::menu_open()) why = "something needs the player"; // a dialog or the settings menu
+    else if (g_frames >= kIntroGiveUp) why = "the main menu did not come in time";
+    if (why) {
+        g_intro = Intro::Done;
+        set_intro_skipping(false);
+        LOG_INFO("boot", "intro skipped at frame %llu: %s", static_cast<unsigned long long>(g_frames), why);
+        return;
+    }
+    set_injected_buttons(g_frames % kIntroPressPeriod < kIntroPressLength ? kPadStart : 0);
+}
+
 } // namespace
 
 u64 frames_shown() { return g_frames; }
@@ -108,6 +154,7 @@ void on_frame() {
     const Options& opt = options();
     advance_input_script(g_frames);
     if (opt.menu_frame && g_frames == opt.menu_frame) ui::open_menu(int(opt.menu_tab));
+    update_intro_skip();
     bool running = pump_events();
 
     // Frame time and speed for the performance display, measured presentation to presentation.
@@ -151,7 +198,7 @@ void on_frame() {
                  display.fb_stride, display.fb_format);
     }
     if (opt.frame_limit && g_frames >= opt.frame_limit) kernel::request_stop(0);
-    if (opt.unthrottled || opt.headless) return;
+    if (opt.unthrottled || opt.headless || g_intro == Intro::Skipping) return;
     // Fast-forward runs flat out, or at a chosen multiple of normal speed.
     if (!turbo_held()) pace(1);
     else if (settings().turbo_speed) pace(settings().turbo_speed);

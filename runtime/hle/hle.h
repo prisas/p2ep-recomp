@@ -57,4 +57,7 @@ enum : u32 {
     kErrUnsupported = 0x80020325,
 };
 
+// How many movies the game has shut down so far, whether they played to the end or were skipped.
+u32 movies_finished();
+
 } // namespace p2::hle

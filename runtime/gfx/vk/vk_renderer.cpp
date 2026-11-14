@@ -180,6 +180,7 @@ public:
         fit_ = fit;
         smooth_ = smooth;
     }
+    void set_output_visible(bool visible) override { output_visible_ = visible; }
     void output_size(u32& width, u32& height) const override;
     void set_overlay_builder(std::function<void()> build) override { overlay_builder_ = std::move(build); }
     bool capture_output(std::vector<u8>& rgba, u32& width, u32& height) override;
@@ -244,6 +245,7 @@ private:
     u32 scale_ = 1;
     Fit fit_ = Fit::Aspect;
     bool smooth_ = true;
+    bool output_visible_ = true;
 
     std::function<void()> overlay_builder_;
     bool overlay_ready_ = false;
@@ -1560,7 +1562,9 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
 
     bool recreate = false;
     bool submitted = false;
-    if (swapchain_ || (surface_ && create_swapchain())) {
+    if (!output_visible_) {
+        // Nothing to show: the frame's work is submitted below like any other.
+    } else if (swapchain_ || (surface_ && create_swapchain())) {
         u32 index = 0;
         VkResult acquired = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, slot().acquired, VK_NULL_HANDLE, &index);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {

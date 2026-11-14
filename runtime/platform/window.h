@@ -45,6 +45,9 @@ void set_fullscreen(bool on);
 // True while the fast-forward key is held.
 bool turbo_held();
 
+// Buttons the program itself holds down on the player's behalf (added to the real input).
+void set_injected_buttons(u32 buttons);
+
 // Scripted input for unattended runs: "frame:buttons" pairs set the pad from that frame on.
 void set_input_script(const std::string& script);
 void advance_input_script(u64 frame);

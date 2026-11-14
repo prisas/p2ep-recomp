@@ -33,7 +33,7 @@ namespace p2::ui {
 namespace {
 
 constexpr u32 kDisplayWidth = 480, kDisplayHeight = 272;
-constexpr int kTabCount = 4;
+constexpr int kTabCount = 5;
 
 struct SlotDialog {
     bool open = false;
@@ -332,6 +332,17 @@ void draw_message() {
     ImGui::End();
 }
 
+void general_tab() {
+    host::Settings& s = host::settings();
+    if (ImGui::Checkbox("Skip the intro at start-up", &s.skip_intro)) changed();
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Starts at the main menu: the notices, logos and opening movie are skipped. "
+                        "Takes effect the next time the game starts.");
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+}
+
 void video_tab() {
     host::Settings& s = host::settings();
     int scale = int(s.scale);
@@ -447,8 +458,8 @@ void draw_menu() {
         const f32 footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
         ImGui::BeginChild("##tabs", ImVec2(0.0f, -footer));
         if (ImGui::BeginTabBar("##bar")) {
-            static constexpr const char* names[kTabCount] = {"Video", "Audio", "Controls", "Help"};
-            static void (*const tabs[kTabCount])() = {video_tab, audio_tab, controls_tab, help_tab};
+            static constexpr const char* names[kTabCount] = {"General", "Video", "Audio", "Controls", "Help"};
+            static void (*const tabs[kTabCount])() = {general_tab, video_tab, audio_tab, controls_tab, help_tab};
             for (int i = 0; i < kTabCount; ++i) {
                 const ImGuiTabItemFlags tab_flags = g_force_tab == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 if (ImGui::BeginTabItem(names[i], nullptr, tab_flags)) {

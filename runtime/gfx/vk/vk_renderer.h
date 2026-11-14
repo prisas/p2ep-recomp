@@ -31,6 +31,9 @@ public:
     virtual u32 scale() const = 0;
     virtual void set_vsync(bool on) = 0;
     virtual void set_fit(Fit fit, bool smooth) = 0;
+    // While hidden, frames are rendered and finished as usual but not shown; the window keeps its
+    // last picture and presentation never waits for the display.
+    virtual void set_output_visible(bool visible) = 0;
 
     // Size of the final picture (window or off-screen image) in pixels; zero when there is none.
     virtual void output_size(u32& width, u32& height) const = 0;

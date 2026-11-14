@@ -17,6 +17,7 @@ bool g_sdl_audio = false;
 FILE* g_wav = nullptr;
 u32 g_wav_frames = 0;
 f32 g_volume = 1.0f;
+bool g_muted = false;
 
 constexpr int kBytesPerFrame = 4;
 constexpr int kTargetQueueFrames = kSampleRate * 60 / 1000; // aim for about 60 ms buffered
@@ -74,6 +75,8 @@ bool output_record(const std::string& wav_path) {
     return true;
 }
 
+void output_set_muted(bool muted) { g_muted = muted; }
+
 void output_set_volume(f32 volume) {
     g_volume = volume;
     if (g_stream) SDL_SetAudioStreamGain(g_stream, volume);
@@ -84,7 +87,7 @@ void output_push(const s16* frames, u32 frame_count) {
         std::fwrite(frames, kBytesPerFrame, frame_count, g_wav);
         g_wav_frames += frame_count;
     }
-    if (!g_stream) return;
+    if (!g_stream || g_muted) return;
 
     const int queued = SDL_GetAudioStreamQueued(g_stream) / kBytesPerFrame;
     // Fast-forward produces audio faster than it can be played: keep only what fits.

@@ -30,6 +30,8 @@ Disc images in ISO and CHD format are accepted.
   chosen or unlimited speed.
 - Instant disc access: data is read straight from the image with no simulated drive delays.
 - An in-game settings menu (Esc) for video, audio and controls; settings persist.
+- An optional quick start that skips the start-up notices, logos and opening movie and boots
+  straight to the main menu.
 - Save, load and message screens of its own in place of the console's, with save pictures and
   descriptions. Saves are plain files in a normal folder.
 - Keyboard (rebindable) and gamepad input, hot-pluggable.

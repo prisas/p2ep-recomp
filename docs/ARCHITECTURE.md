@@ -121,6 +121,12 @@ pixels are compared again (by a vectorised hash) whenever the game has touched t
 *and* its code has run since the last comparison. Display lists run to completion when they are
 submitted, so no game code runs between the draws of one submission and they share a comparison.
 
+**Skipping the intro.** The game lets the player skip each start-up screen with Start and shows
+its main menu by itself once the opening movie is gone. With the setting on, the program presses
+Start on the player's behalf and runs at full speed, with the window blank and the sound muted,
+until the game shuts the opening movie down. It stops early if a system dialog or the settings menu
+needs the player, and gives up after two minutes of game time. No game code or data is altered.
+
 **Overlay and system dialogs.** The settings menu and the screens the console's system software
 would show (save-slot lists, messages) are drawn with Dear ImGui into the final picture, after the
 game's frame has been scaled into it. A dialog keeps the game's dialog call in its *running* state

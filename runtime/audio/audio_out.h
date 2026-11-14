@@ -23,4 +23,7 @@ bool output_record(const std::string& wav_path);
 
 void output_set_volume(f32 volume);
 
+// While muted, pushed audio is dropped instead of played (recordings still receive it).
+void output_set_muted(bool muted);
+
 } // namespace p2::audio
