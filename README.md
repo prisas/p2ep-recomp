@@ -70,3 +70,6 @@ and the known limitations.
 This project contains no code or assets from the game and is not affiliated with or endorsed by
 its publisher. You are responsible for using a disc image you are entitled to use. Third-party
 libraries are used under their own licences, listed in [docs/BUILDING.md](docs/BUILDING.md).
+
+This repository is published without a licence: you are welcome to read the code, but no
+permission is granted to copy, modify or redistribute it.
