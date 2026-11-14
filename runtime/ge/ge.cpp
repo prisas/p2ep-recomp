@@ -582,24 +582,60 @@ void draw_primitive(u32 prim_type, u32 count) {
         g_indices.push_back(u16(c));
     };
 
+    // Points and lines are one console pixel wide at any rendering resolution. A host line or
+    // point would be one *host* pixel wide and thin out as the resolution goes up, so they are
+    // drawn as quads in screen space covering exactly the pixels the console would fill.
+    auto to_screen = [](Vertex v, bool& ok) {
+        if (v.w != 1.0f) {
+            if (v.w <= 0.0f) ok = false;
+            else {
+                v.x /= v.w, v.y /= v.w, v.z /= v.w;
+                v.w = 1.0f;
+            }
+        }
+        return v;
+    };
+    auto quad = [&](const Vertex& a, const Vertex& b, const Vertex& c, const Vertex& d) {
+        const u32 base = u32(g_out_vertices.size());
+        if (base + 4 > 65535) return;
+        g_out_vertices.push_back(a);
+        g_out_vertices.push_back(b);
+        g_out_vertices.push_back(c);
+        g_out_vertices.push_back(d);
+        const u16 idx[6] = {u16(base), u16(base + 1), u16(base + 2), u16(base), u16(base + 2), u16(base + 3)};
+        g_indices.insert(g_indices.end(), idx, idx + 6);
+    };
+    auto line = [&](u32 i, u32 j) {
+        bool ok = true;
+        Vertex a = to_screen(g_vertices[i], ok), b = to_screen(g_vertices[j], ok);
+        if (!ok) return;
+        if (draw.flat_shade) { // a flat-shaded line takes the colour of its last vertex
+            a.color = b.color;
+            a.specular = b.specular;
+        }
+        // Thicken along the minor axis, so a line steps through whole pixels as the console's does.
+        Vertex a2 = a, b2 = b;
+        if (std::fabs(b.x - a.x) >= std::fabs(b.y - a.y)) a2.y += 1.0f, b2.y += 1.0f;
+        else a2.x += 1.0f, b2.x += 1.0f;
+        quad(a, b, b2, a2);
+    };
+
     switch (prim_type) {
     case kPoints:
-        topology = Topology::Points;
-        for (u32 i = 0; i < count; ++i) g_indices.push_back(u16(i));
+        for (u32 i = 0; i < count; ++i) {
+            bool ok = true;
+            Vertex p = to_screen(g_vertices[i], ok);
+            if (!ok) continue;
+            Vertex right = p, down = p, corner = p;
+            right.x += 1.0f, corner.x += 1.0f, corner.y += 1.0f, down.y += 1.0f;
+            quad(p, right, corner, down);
+        }
         break;
     case kLines:
-        topology = Topology::Lines;
-        for (u32 i = 0; i + 1 < count; i += 2) {
-            g_indices.push_back(u16(i));
-            g_indices.push_back(u16(i + 1));
-        }
+        for (u32 i = 0; i + 1 < count; i += 2) line(i, i + 1);
         break;
     case kLineStrip:
-        topology = Topology::Lines;
-        for (u32 i = 0; i + 1 < count; ++i) {
-            g_indices.push_back(u16(i));
-            g_indices.push_back(u16(i + 1));
-        }
+        for (u32 i = 0; i + 1 < count; ++i) line(i, i + 1);
         break;
     case kTriangles:
         for (u32 i = 0; i + 2 < count; i += 3) triangle(i, i + 1, i + 2);
@@ -641,9 +677,11 @@ void draw_primitive(u32 prim_type, u32 count) {
     }
     }
 
+    // Sprites, lines and points were turned into quads with vertices of their own.
+    const bool expanded = prim_type == kSprites || prim_type == kPoints || prim_type == kLines || prim_type == kLineStrip;
     if (g_trace_draws) {
-        const Vertex* v = prim_type == kSprites && !g_out_vertices.empty() ? g_out_vertices.data() : g_vertices.data();
-        const u32 last = prim_type == kSprites && !g_out_vertices.empty() ? u32(g_out_vertices.size()) - 1 : count - 1;
+        const Vertex* v = expanded && !g_out_vertices.empty() ? g_out_vertices.data() : g_vertices.data();
+        const u32 last = expanded && !g_out_vertices.empty() ? u32(g_out_vertices.size()) - 1 : count - 1;
         std::string line = format("draw prim %u n %u idx %zu vtype %06x at %08x fb %08x/%u f%u zb %08x sc %d,%d-%d,%d", prim_type,
                                   count, g_indices.size(), s.vtype(), vertex_base, draw.fb_addr, draw.fb_stride, draw.fb_format,
                                   draw.zb_addr,
@@ -673,7 +711,7 @@ void draw_primitive(u32 prim_type, u32 count) {
     }
 
     if (g_indices.empty()) return;
-    if (prim_type == kSprites)
+    if (expanded)
         g_renderer->draw(draw, topology, g_out_vertices.data(), u32(g_out_vertices.size()), g_indices.data(), u32(g_indices.size()));
     else
         g_renderer->draw(draw, topology, g_vertices.data(), count, g_indices.data(), u32(g_indices.size()));

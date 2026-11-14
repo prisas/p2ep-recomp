@@ -106,7 +106,10 @@ nested guest calls on the calling fiber.
 **Graphics.** The display-list processor executes the command lists the game submits. Vertices are
 decoded, skinned, transformed and lit on the CPU and reach the renderer as ready-to-rasterise
 primitives with the pixel-pipeline state they need. The Vulkan renderer keeps one image per guest
-render target at a multiple of the original resolution and uses a single fragment shader for the
+render target at a multiple of the original resolution. Points and lines, which the game uses for
+text-box backgrounds, borders and menu rules, are drawn as quads exactly one console pixel wide,
+so they cover the same pixels at every resolution instead of thinning out. The renderer uses a
+single fragment shader for the
 fixed-function pixel pipeline, so no shader is ever compiled while playing; the driver's compiled
 render states are kept on disk between runs. The frame the game selects for display is scaled into
 the window.
