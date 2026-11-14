@@ -36,7 +36,5 @@ compile_commands.json
 *.jpg
 *.jpeg
 
-# The program's icon and the launcher's background picture: artwork made for this project,
-# embedded in the program by the build
-!/icon/*
-!/background/*
+# The project's own artwork (the program's icon, the launcher's background), embedded by the build
+!/assets/*

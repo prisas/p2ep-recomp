@@ -43,17 +43,17 @@ libraries on first use (this takes a while once), recompiles the game executable
 | `-Fresh` | Discard the CMake cache first. |
 | `-Target <name>` | Build a single target, for example `p2recomp`. |
 
-**Program icon.** The first PNG or JPEG in the `icon` folder at the top of the repository (or the
-image passed with `-DP2EP_ICON=<image>` to CMake) becomes the icon of `p2ep.exe`, which Explorer,
-the taskbar and the window's title bar show. The image is centre-cropped to a square. The
-repository comes with the project's own icon there; without any image the program has no icon of
-its own.
+**Artwork.** The project's own artwork is in the `assets` folder at the top of the repository and
+is embedded in `p2ep.exe` by the build. Each image may be a PNG or a JPEG, and either can be
+replaced by passing another image to CMake:
 
-**Launcher background.** Likewise, the first PNG or JPEG in the `background` folder (or
-`-DP2EP_BACKGROUND=<image>`) is embedded in `p2ep.exe` and shown behind the launcher, filling the
-window with its shape kept (anything cut off comes from the left and evenly from top and bottom)
-under a dark veil that keeps the text readable. The repository comes with the project's own
-picture there; without any image the launcher has a plain dark background.
+| File | Use | Instead, pass |
+|---|---|---|
+| `assets/icon.jpg` | The program's icon, which Explorer, the taskbar and the window's title bar show. The image is centre-cropped to a square. | `-DP2EP_ICON=<image>` |
+| `assets/background.jpg` | The picture behind the launcher. It fills the window with its shape kept (anything cut off comes from the left and evenly from top and bottom), under a dark veil that keeps the text readable. | `-DP2EP_BACKGROUND=<image>` |
+
+Without an icon the program has none of its own; without a background the launcher has a plain
+dark one.
 
 If the repository lives in a folder whose path contains a space, the third-party libraries are
 built under `%LOCALAPPDATA%\p2ep-build` instead of the build folder, because some of them cannot

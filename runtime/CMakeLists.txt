@@ -85,25 +85,25 @@ add_dependencies(p2ep p2_game_code_generate)
 set_target_properties(p2ep PROPERTIES WIN32_EXECUTABLE TRUE)
 target_link_options(p2ep PRIVATE "/ENTRY:wmainCRTStartup")
 
-# Artwork embedded in the program: the image the variable names, or else the first PNG or JPEG in
-# the folder named, at the top of the repository (where the project's own artwork is).
-function(p2ep_find_image out variable folder)
+# Artwork embedded in the program: the image the variable names, or else assets/<name>.png, .jpg or
+# .jpeg at the top of the repository, where the project's own artwork is.
+function(p2ep_find_image out variable name)
     set(image "${${variable}}")
     if(NOT image)
-        file(GLOB candidates LIST_DIRECTORIES false
-            "${CMAKE_SOURCE_DIR}/${folder}/*.png" "${CMAKE_SOURCE_DIR}/${folder}/*.jpg" "${CMAKE_SOURCE_DIR}/${folder}/*.jpeg")
-        if(candidates)
-            list(SORT candidates)
-            list(GET candidates 0 image)
-        endif()
+        foreach(extension png jpg jpeg)
+            if(EXISTS "${CMAKE_SOURCE_DIR}/assets/${name}.${extension}")
+                set(image "${CMAKE_SOURCE_DIR}/assets/${name}.${extension}")
+                break()
+            endif()
+        endforeach()
     endif()
     set(${out} "${image}" PARENT_SCOPE)
 endfunction()
 set(resources "")
 set(resource_files "")
 
-# The program's icon (P2EP_ICON or icon/): converted to a Windows icon at build time and embedded as
-# resource 1, which Explorer, the taskbar and the window use.
+# The program's icon (P2EP_ICON or assets/icon.*): converted to a Windows icon at build time and
+# embedded as resource 1, which Explorer, the taskbar and the window use.
 p2ep_find_image(icon_image P2EP_ICON icon)
 if(icon_image)
     set(icon_file "${CMAKE_CURRENT_BINARY_DIR}/p2ep.ico")
@@ -118,11 +118,11 @@ if(icon_image)
     list(APPEND resource_files "${icon_file}")
     message(STATUS "Program icon: ${icon_image}")
 else()
-    message(STATUS "Program icon: none (put a PNG or JPEG in icon/ to have one)")
+    message(STATUS "Program icon: none (put assets/icon.png or .jpg to have one)")
 endif()
 
-# The launcher's background picture (P2EP_BACKGROUND or background/): embedded as it is, as raw data
-# resource 2, and decoded when the launcher opens.
+# The launcher's background picture (P2EP_BACKGROUND or assets/background.*): embedded as it is, as
+# raw data resource 2, and decoded when the launcher opens.
 p2ep_find_image(background_image P2EP_BACKGROUND background)
 if(background_image)
     file(TO_CMAKE_PATH "${background_image}" background_rc)
@@ -130,7 +130,7 @@ if(background_image)
     list(APPEND resource_files "${background_image}")
     message(STATUS "Launcher background: ${background_image}")
 else()
-    message(STATUS "Launcher background: none (put a PNG or JPEG in background/ to have one)")
+    message(STATUS "Launcher background: none (put assets/background.png or .jpg to have one)")
 endif()
 
 if(resources)
