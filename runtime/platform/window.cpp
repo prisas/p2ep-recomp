@@ -29,6 +29,7 @@ u32 g_injected = 0;
 
 bool g_quit = false;
 u32 g_held_over = 0; // buttons still down from before the overlay gave the pad back
+void (*g_drop_handler)(const char*) = nullptr;
 
 struct PadBinding {
     SDL_GamepadButton button;
@@ -237,6 +238,7 @@ void set_fullscreen(bool on) {
 }
 
 void set_injected_buttons(u32 buttons) { g_injected = buttons; }
+void set_drop_handler(void (*handler)(const char* path)) { g_drop_handler = handler; }
 
 bool pump_events() {
     PadState pad;
@@ -275,6 +277,9 @@ bool pump_events() {
             if (event.gbutton.button == SDL_GAMEPAD_BUTTON_GUIDE) ui::toggle_menu();
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: window_resized(); break;
+        case SDL_EVENT_DROP_FILE:
+            if (g_drop_handler && event.drop.data) g_drop_handler(event.drop.data);
+            break;
         default: break;
         }
     }

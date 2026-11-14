@@ -13,6 +13,7 @@
 #include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/platform/config.h"
 #include "runtime/platform/window.h"
+#include "runtime/ui/ui_shared.h"
 
 #include <SDL3/SDL.h>
 
@@ -68,6 +69,8 @@ SDL_Window* g_window = nullptr;
 gfx::Renderer* g_renderer = nullptr;
 u32 g_width = 0, g_height = 0; // drawing size without a window
 f32 g_ui_scale = 1.0f;
+ImFont* g_title_font = nullptr;
+void (*g_screen)() = nullptr; // a full-window screen drawn instead of the menu and dialogs
 
 bool g_menu = false;
 int g_force_tab = -1;
@@ -175,7 +178,7 @@ void load_fonts() {
     ImFont* font = nullptr;
     if (std::filesystem::exists(fonts + "segoeui.ttf", ec)) font = io.Fonts->AddFontFromFileTTF((fonts + "segoeui.ttf").c_str(), size);
     if (!font) {
-        io.Fonts->AddFontDefault();
+        g_title_font = io.Fonts->AddFontDefault();
         return;
     }
     // Save descriptions may use Japanese punctuation and full-width characters.
@@ -185,6 +188,13 @@ void load_fonts() {
         merge.MergeMode = true;
         if (io.Fonts->AddFontFromFileTTF((fonts + name).c_str(), size, &merge, io.Fonts->GetGlyphRangesJapanese())) break;
     }
+    // Headings: semibold when the system has it.
+    const f32 title_size = std::round(30.0f * g_ui_scale);
+    for (const char* name : {"seguisb.ttf", "segoeui.ttf"}) {
+        if (!std::filesystem::exists(fonts + name, ec)) continue;
+        if ((g_title_font = io.Fonts->AddFontFromFileTTF((fonts + name).c_str(), title_size))) break;
+    }
+    if (!g_title_font) g_title_font = font;
 }
 
 void draw_performance() {
@@ -343,6 +353,14 @@ void general_tab() {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Starts at the main menu: the notices, logos and opening movie are skipped. "
                         "Takes effect the next time the game starts.");
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+
+    if (ImGui::Checkbox("Show the launcher at start", &s.show_launcher)) changed();
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("When off, the game starts straight away with the last disc image chosen. Hold Shift "
+                        "while starting it to see the launcher anyway.");
     ImGui::PopTextWrapPos();
     ImGui::Unindent();
 }
@@ -504,7 +522,7 @@ void controls_tab() {
 void help_tab() {
     ImGui::TextUnformatted("Esc or F1");
     ImGui::SameLine(160.0f * g_ui_scale);
-    ImGui::TextDisabled("open or close this menu (the game pauses)");
+    ImGui::TextDisabled("open or close the settings during play (the game pauses)");
     ImGui::TextUnformatted("F11 or Alt+Enter");
     ImGui::SameLine(160.0f * g_ui_scale);
     ImGui::TextDisabled("full screen");
@@ -529,20 +547,7 @@ void draw_menu() {
     if (ImGui::Begin("Settings", &open, flags)) {
         const f32 footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
         ImGui::BeginChild("##tabs", ImVec2(0.0f, -footer));
-        if (ImGui::BeginTabBar("##bar")) {
-            static constexpr const char* names[kTabCount] = {"General", "Video", "Audio", "Controls", "Help"};
-            static void (*const tabs[kTabCount])() = {general_tab, video_tab, audio_tab, controls_tab, help_tab};
-            for (int i = 0; i < kTabCount; ++i) {
-                const ImGuiTabItemFlags tab_flags = g_force_tab == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-                if (ImGui::BeginTabItem(names[i], nullptr, tab_flags)) {
-                    ImGui::Spacing();
-                    tabs[i]();
-                    ImGui::EndTabItem();
-                }
-            }
-            g_force_tab = -1;
-            ImGui::EndTabBar();
-        }
+        settings_tabs();
         ImGui::EndChild();
         ImGui::Separator();
         if (ImGui::Button("Resume")) open = false;
@@ -565,15 +570,45 @@ void build() {
         io.DeltaTime = 1.0f / 60.0f;
     }
     ImGui::NewFrame();
-    draw_performance();
-    draw_slot_dialog();
-    draw_message();
-    draw_notices();
-    draw_menu();
+    if (g_screen) {
+        g_screen();
+        draw_notices();
+    } else {
+        draw_performance();
+        draw_slot_dialog();
+        draw_message();
+        draw_notices();
+        draw_menu();
+    }
     ImGui::Render();
 }
 
 } // namespace
+
+ImFont* title_font() { return g_title_font ? g_title_font : ImGui::GetFont(); }
+f32 ui_scale() { return g_ui_scale; }
+
+void settings_tabs() {
+    if (!ImGui::BeginTabBar("##bar")) return;
+    static constexpr const char* names[kTabCount] = {"General", "Video", "Audio", "Controls", "Help"};
+    static void (*const tabs[kTabCount])() = {general_tab, video_tab, audio_tab, controls_tab, help_tab};
+    for (int i = 0; i < kTabCount; ++i) {
+        const ImGuiTabItemFlags tab_flags = g_force_tab == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        if (ImGui::BeginTabItem(names[i], nullptr, tab_flags)) {
+            ImGui::Spacing();
+            tabs[i]();
+            ImGui::EndTabItem();
+        }
+    }
+    g_force_tab = -1;
+    ImGui::EndTabBar();
+}
+
+void set_screen(void (*draw)()) {
+    g_screen = draw;
+    g_menu = false;
+    g_binding = -1;
+}
 
 // --- lifecycle ------------------------------------------------------------------------------------------------
 
@@ -707,13 +742,13 @@ void set_pad(u32 buttons) {
 bool captures_pad() { return g_active && (g_menu || g_slots.open || g_message.open); }
 
 void toggle_menu() {
-    if (!g_active) return;
+    if (!g_active || g_screen) return;
     g_menu = !g_menu;
     g_binding = -1;
 }
 
 void open_menu(int tab) {
-    if (!g_active) return;
+    if (!g_active || g_screen) return;
     g_menu = true;
     g_force_tab = std::clamp(tab, 0, kTabCount - 1);
 }

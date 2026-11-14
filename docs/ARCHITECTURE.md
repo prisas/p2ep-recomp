@@ -32,7 +32,7 @@ part of this repository.
 | `runtime/gfx` | Texture dumping and replacement (texture packs) |
 | `runtime/audio`, `runtime/media` | Audio device output; ATRAC and H.264 decoding |
 | `runtime/platform` | Window, input, settings, frame pacing, dumps |
-| `runtime/ui` | Overlay: settings menu, system dialogs, performance display |
+| `runtime/ui` | Launcher, and the overlay: settings menu, system dialogs, performance display |
 | `data/psp_api` | Names of the console's system functions, grouped by library |
 | `data/code_blobs.txt` | Files the game loads at fixed addresses and executes |
 | `tests` | Unit tests and an end-to-end recompiler test |
@@ -140,6 +140,14 @@ would show (save-slot lists, messages) are drawn with Dear ImGui into the final 
 game's frame has been scaled into it. A dialog keeps the game's dialog call in its *running* state
 until the player answers, exactly as the console's does, and takes the pad away from the game
 meanwhile. Unattended runs without the overlay answer dialogs with a default instead.
+
+**Launcher.** Started without a disc image, the program opens the window and the renderer as usual
+and shows the launcher in it before anything of the game is loaded: a full-window screen drawn by
+the same overlay, over a blank picture, with the settings tabs of the in-game menu. A chosen image
+is opened and its executable's SHA-256 compared with the one the build was generated from, so a
+wrong file is reported before Play is offered. Play hands the image to the normal start-up and the
+same window carries on as the game's. The program is a Windows (not console) program; started from
+a terminal it attaches to it for its messages, and otherwise reports errors in message boxes.
 
 **Audio.** The game's own sound engine drives a 32-voice software synthesizer and streams
 ATRAC3plus music; both are mixed at 44.1 kHz in guest time and handed to the sound device, with a

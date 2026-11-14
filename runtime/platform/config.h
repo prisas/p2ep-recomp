@@ -3,6 +3,7 @@
 #include "lib/common/types.h"
 
 #include <filesystem>
+#include <string>
 
 // User settings: what the overlay edits and what survives between runs in <user dir>/settings.ini.
 namespace p2::host {
@@ -16,6 +17,8 @@ extern const char* const kPadButtonNames[kPadButtonCount];
 
 struct Settings {
     // general
+    std::string image;          // the disc image last chosen in the launcher, as UTF-8 text
+    bool show_launcher = true;  // started without an image, show the launcher (else play `image` at once)
     bool skip_intro = false;    // start at the main menu: notices, logos and the opening movie skipped
 
     // video

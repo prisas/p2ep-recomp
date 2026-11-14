@@ -75,10 +75,15 @@ add_executable(p2ep
     platform/frame.cpp
     platform/host.cpp
     platform/window.cpp
+    ui/launcher.cpp
     ui/overlay.cpp
     ${shader_headers}
     $<TARGET_OBJECTS:p2_game_code>)
 add_dependencies(p2ep p2_game_code_generate)
+# A windowed program: no console window opens with it. Started from a terminal, it attaches to it
+# for its messages (see main.cpp). The entry point takes the command line as UTF-16.
+set_target_properties(p2ep PROPERTIES WIN32_EXECUTABLE TRUE)
+target_link_options(p2ep PRIVATE "/ENTRY:wmainCRTStartup")
 
 # The program's icon. The image lives outside version control, like the disc image: P2EP_ICON, or
 # else the first PNG or JPEG in icon/ at the top of the repository. It is converted to a Windows

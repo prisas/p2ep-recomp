@@ -25,8 +25,12 @@ if (-not (Test-Path -LiteralPath $exe)) {
 }
 if (-not $Output) { $Output = Join-Path $root "dist\p2ep" }
 
-if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Recurse -Force }
-New-Item -ItemType Directory -Path $Output | Out-Null
+# Replace everything but the user folder: saves and settings live next to the program.
+if (Test-Path -LiteralPath $Output) {
+    Get-ChildItem -LiteralPath $Output -Force | Where-Object { $_.Name -ne "userdata" } | Remove-Item -Recurse -Force
+} else {
+    New-Item -ItemType Directory -Path $Output | Out-Null
+}
 Copy-Item -LiteralPath $exe -Destination $Output
 Get-ChildItem -LiteralPath $bin -Filter *.dll | Copy-Item -Destination $Output
 
@@ -53,4 +57,4 @@ foreach ($doc in "README.md", "docs\OPTIONS.md", "docs\COMPATIBILITY.md") {
 }
 
 $size = (Get-ChildItem -LiteralPath $Output -Recurse -File | Measure-Object -Property Length -Sum).Sum
-Write-Host ("Packaged {0} ({1:N1} MB). Run it with:  {0}\p2ep.exe <your disc image>" -f $Output, ($size / 1MB))
+Write-Host ("Packaged {0} ({1:N1} MB). Start {0}\p2ep.exe and choose your disc image in the launcher." -f $Output, ($size / 1MB))

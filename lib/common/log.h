@@ -19,6 +19,8 @@ void write(Level level, const char* channel, const char* fmt, ...) __attribute__
 
 // Called by fatal() before the process exits; used by the runtime to dump guest state.
 void set_fatal_hook(void (*hook)());
+// Called by fatal() last, with its message; used to tell a player who has no console.
+void set_fatal_report(void (*report)(const char* message));
 
 } // namespace p2::log
 

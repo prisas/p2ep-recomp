@@ -54,6 +54,9 @@ struct WindowSize {
 // Sizes worth offering for the display the window is on: those that fit it, smallest first.
 std::vector<WindowSize> window_size_choices();
 
+// Called with the UTF-8 path of each file dropped onto the window (null: drops are ignored).
+void set_drop_handler(void (*handler)(const char* path));
+
 // True while the fast-forward key is held.
 bool turbo_held();
 

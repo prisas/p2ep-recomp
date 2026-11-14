@@ -15,7 +15,10 @@
 #include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/window.h"
+#include "runtime/ui/launcher.h"
 #include "runtime/ui/overlay.h"
+
+#include <SDL3/SDL_messagebox.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,15 +32,68 @@ using namespace p2;
 
 namespace {
 
+constexpr const char* kTitle = "Persona 2: Eternal Punishment";
 constexpr const char* kExecutablePath = "PSP_GAME/SYSDIR/EBOOT.BIN";
 constexpr u32 kMinRootStack = 0x40000;
 
 std::unique_ptr<gfx::Renderer> g_renderer;
+bool g_console = false; // messages written to the standard streams reach someone
 
-int usage() {
-    std::puts("usage: p2ep <disc-image> [options]\n"
+// The program is a windowed one, without a console of its own. Started from a terminal it writes
+// its messages there; with its output redirected, they go where they were sent.
+void connect_console() {
+    auto usable = [](DWORD which) {
+        const HANDLE handle = GetStdHandle(which);
+        return handle && handle != INVALID_HANDLE_VALUE && GetFileType(handle) != FILE_TYPE_UNKNOWN;
+    };
+    const bool out = usable(STD_OUTPUT_HANDLE), err = usable(STD_ERROR_HANDLE);
+    g_console = out || err;
+    if ((out && err) || !AttachConsole(ATTACH_PARENT_PROCESS)) return;
+    g_console = true;
+    FILE* stream = nullptr;
+    if (!out) freopen_s(&stream, "CONOUT$", "w", stdout);
+    if (!err) freopen_s(&stream, "CONOUT$", "w", stderr);
+}
+
+// Without a console, a player would never see a message on the standard streams: show it.
+void show_message(const std::string& text) {
+    if (!g_console) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle, text.c_str(), static_cast<SDL_Window*>(host::window_handle()));
+}
+
+void report_error(const std::string& text) {
+    std::fprintf(stderr, "error: %s\n", text.c_str());
+    show_message(text);
+}
+
+std::string to_utf8(const wchar_t* text) {
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string out(size_t(size - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+// The folder holding this program.
+std::filesystem::path program_folder() {
+    std::wstring path(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD n = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
+        if (n < path.size()) {
+            path.resize(n);
+            break;
+        }
+        path.resize(path.size() * 2);
+    }
+    return std::filesystem::path(path).parent_path();
+}
+
+int usage(const std::string& problem = {}) {
+    const std::string text = (problem.empty() ? "" : problem + "\n\n") +
+        "usage: p2ep [disc-image] [options]\n"
               "\n"
-              "  --user-dir <dir>      where saves and settings are kept (default: ./userdata)\n"
+              "Without a disc image, the launcher opens: choose the image and the settings there.\n"
+              "\n"
+              "  --user-dir <dir>      where saves and settings are kept (default: userdata next to p2ep.exe)\n"
               "  --scale <n>           rendering resolution multiplier, 1-10 (default: match the window)\n"
               "  --fullscreen          start in full screen\n"
               "  --window-size <WxH>   window size in pixels this time, for example 1920x1088\n"
@@ -53,7 +109,9 @@ int usage() {
               "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,... (or @file)\n"
               "  --no-gpu              do not create a renderer (system-call testing only)\n"
               "  --log <channels>      comma-separated trace channels: hle,io,thread,mem,display,ge,audio,all\n"
-              "  --log-file <path>     also write the log to a file");
+              "  --log-file <path>     also write the log to a file\n";
+    std::fputs(text.c_str(), problem.empty() ? stdout : stderr);
+    if (!g_console) SDL_ShowSimpleMessageBox(problem.empty() ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR, kTitle, text.c_str(), nullptr);
     return 2;
 }
 
@@ -83,21 +141,35 @@ LONG CALLBACK fault_handler(EXCEPTION_POINTERS* info) {
     P2_FATAL("host access violation: %s %p (code at %p)", kind, address, rec->ExceptionAddress);
 }
 
-bool boot(std::string* error) {
-    if (!host::open_image(host::options().image, error)) return false;
-
-    std::vector<u8> executable;
-    if (!host::iso().read_all(kExecutablePath, executable)) {
-        *error = std::string("the image does not contain ") + kExecutablePath;
+// Opens the disc image and reads the game's executable from it, making sure it is the one this
+// build was made from. On failure `problem` says what is wrong, in words for the player.
+bool open_game(const std::filesystem::path& image, std::vector<u8>* executable, std::string* problem) {
+    std::string error;
+    if (!host::open_image(image, &error)) {
+        *problem = "This file cannot be read as a disc image: " + error + ".";
         return false;
     }
-    const std::string digest = to_hex(sha256(executable.data(), executable.size()));
+    std::vector<u8> bytes;
+    if (!host::iso().read_all(kExecutablePath, bytes)) {
+        *problem = "This disc image does not hold a PSP game.";
+        return false;
+    }
+    const std::string digest = to_hex(sha256(bytes.data(), bytes.size()));
     if (digest != g_gen_module.sha256) {
-        *error = "this build was generated from a different game executable than the one in the image.\n"
-                 "  image:  " + digest + "\n  build:  " + g_gen_module.sha256 +
-                 "\nRebuild with this image, or use the image the build was made from.";
+        LOG_INFO("boot", "the image's executable is %s; this build was made from %s", digest.c_str(), g_gen_module.sha256);
+        *problem = "This disc image holds a different game, or another version of it, than the one this build was made "
+                   "from.";
         return false;
     }
+    if (executable) *executable = std::move(bytes);
+    return true;
+}
+
+bool check_image(const std::filesystem::path& image, std::string* problem) { return open_game(image, nullptr, problem); }
+
+bool boot(std::string* error) {
+    std::vector<u8> executable;
+    if (!open_game(host::options().image, &executable, error)) return false;
 
     psp::Module module;
     if (!psp::load_prx(executable, g_gen_module.base, module, error)) return false;
@@ -150,9 +222,15 @@ bool boot(std::string* error) {
 
 } // namespace
 
-int main(int argc, char** argv) {
+int wmain(int argc, wchar_t** wargv) {
+    connect_console();
+    // Holding Shift while the program starts asks for the launcher even when it is switched off.
+    const bool shift_held = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    std::vector<std::string> argv;
+    for (int i = 0; i < argc; ++i) argv.push_back(to_utf8(wargv[i]));
+
     host::Options& opt = host::options();
-    opt.user_dir = "userdata";
+    opt.user_dir = program_folder() / "userdata";
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
     bool no_gpu = false, fullscreen = false, skip_intro = false, dump_textures = false;
@@ -160,9 +238,9 @@ int main(int argc, char** argv) {
     u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        auto value = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
-        if (a == "--user-dir") opt.user_dir = value();
+        std::string a = argv[size_t(i)];
+        auto value = [&]() -> std::string { return i + 1 < argc ? argv[size_t(++i)] : std::string(); };
+        if (a == "--user-dir") opt.user_dir = utf8_path(value());
         else if (a == "--scale") scale = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--fullscreen") fullscreen = true;
         else if (a == "--window-size") { // <width>x<height>, in pixels
@@ -170,10 +248,7 @@ int main(int argc, char** argv) {
             char* end = nullptr;
             window_w = u32(std::strtoul(spec.c_str(), &end, 10));
             window_h = (*end == 'x' || *end == 'X') ? u32(std::strtoul(end + 1, nullptr, 10)) : 0;
-            if (window_w < 320 || window_h < 180) {
-                std::fprintf(stderr, "--window-size wants <width>x<height>, at least 320x180\n\n");
-                return usage();
-            }
+            if (window_w < 320 || window_h < 180) return usage("--window-size wants <width>x<height>, at least 320x180.");
         }
         else if (a == "--skip-intro") skip_intro = true;
         else if (a == "--headless") opt.headless = true;
@@ -186,7 +261,7 @@ int main(int argc, char** argv) {
         }
         else if (a == "--unthrottled") opt.unthrottled = true;
         else if (a == "--frames") opt.frame_limit = std::strtoull(value().c_str(), nullptr, 10);
-        else if (a == "--dump-frames") opt.dump_dir = value();
+        else if (a == "--dump-frames") opt.dump_dir = utf8_path(value());
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--dump-from") opt.dump_from = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-textures") dump_textures = true;
@@ -196,7 +271,7 @@ int main(int argc, char** argv) {
         else if (a == "--dump-ram") { // <file>@<frame>
             const std::string spec = value();
             const size_t at = spec.rfind('@');
-            opt.ram_dump = spec.substr(0, at);
+            opt.ram_dump = utf8_path(spec.substr(0, at));
             opt.ram_dump_frame = at == std::string::npos ? 0 : std::strtoull(spec.c_str() + at + 1, nullptr, 10);
         } else if (a == "--watch") { // <hex address>:<bytes>@<frame>
             const std::string spec = value();
@@ -209,8 +284,8 @@ int main(int argc, char** argv) {
             std::string script = value();
             if (!script.empty() && script[0] == '@') {
                 std::vector<u8> bytes;
-                if (!read_file(script.substr(1), bytes)) {
-                    std::fprintf(stderr, "cannot read the input script %s\n", script.c_str() + 1);
+                if (!read_file(utf8_path(script.substr(1)), bytes)) {
+                    report_error("cannot read the input script " + script.substr(1));
                     return 2;
                 }
                 script.assign(bytes.begin(), bytes.end());
@@ -221,18 +296,17 @@ int main(int argc, char** argv) {
         else if (a == "--log") channels = value();
         else if (a == "--log-file") log_file = value();
         else if (a == "--help" || a == "-h") return usage();
-        else if (!a.empty() && a[0] != '-' && opt.image.empty()) opt.image = a;
-        else {
-            std::fprintf(stderr, "unknown option '%s'\n\n", a.c_str());
-            return usage();
-        }
+        else if (!a.empty() && a[0] != '-' && opt.image.empty()) opt.image = utf8_path(a);
+        else return usage("Unknown option '" + a + "'.");
     }
-    if (opt.image.empty()) return usage();
+    // The launcher needs the window and the renderer.
+    if (opt.image.empty() && (opt.headless || no_gpu)) return usage("A disc image is needed with --headless or --no-gpu.");
 
     if (opt.late_from) opt.late_channels = channels;
     else if (!channels.empty()) log::enable_channels(channels);
     if (!log_file.empty() && !log::open_file(log_file)) std::fprintf(stderr, "cannot open log file %s\n", log_file.c_str());
     log::set_fatal_hook(kernel::dump_state);
+    log::set_fatal_report([](const char* message) { show_message(std::string("The game stopped because of an error:\n\n") + message); });
     AddVectoredExceptionHandler(1, fault_handler);
 
     // Settings come from the user folder; options given on the command line win for this run.
@@ -249,7 +323,7 @@ int main(int argc, char** argv) {
 
     std::string error;
     if (!mem::init(&error) || !host::window_init(&error)) {
-        std::fprintf(stderr, "error: %s\n", error.c_str());
+        report_error(error);
         return 1;
     }
     audio::output_init();
@@ -269,16 +343,39 @@ int main(int argc, char** argv) {
         renderer_options.cache_dir = opt.user_dir / "cache";
         g_renderer = gfx::create_vulkan_renderer(renderer_options, &error);
         if (!g_renderer) {
-            std::fprintf(stderr, "error: %s\n", error.c_str());
+            report_error(error);
             return 1;
         }
         host::set_renderer(g_renderer.get());
         ui::attach(g_renderer.get());
     }
+    auto shut_down = [] {
+        host::set_renderer(nullptr);
+        g_renderer.reset();
+        gfx::textures::shutdown();
+        ui::shutdown();
+        audio::output_shutdown();
+        host::window_shutdown();
+    };
+
+    if (opt.image.empty()) {
+        // Started without an image: the launcher. Only when the player switched it off, the image
+        // last chosen still passes the check and Shift is not held does the game start at once.
+        const std::filesystem::path last = utf8_path(settings.image);
+        std::string problem;
+        const bool playable = !last.empty() && check_image(last, &problem);
+        if (playable && !settings.show_launcher && !shift_held) opt.image = last;
+        else opt.image = ui::run_launcher(*g_renderer, check_image, last, problem);
+        if (opt.image.empty()) { // the player closed the launcher
+            shut_down();
+            return 0;
+        }
+    }
+
     ge::init(g_renderer.get());
     if (!audio_dump.empty() && !audio::output_record(audio_dump)) std::fprintf(stderr, "cannot write %s\n", audio_dump.c_str());
     if (!boot(&error)) {
-        std::fprintf(stderr, "error: %s\n", error.c_str());
+        report_error(error);
         return 1;
     }
 
@@ -299,11 +396,6 @@ int main(int argc, char** argv) {
              static_cast<unsigned long long>(host::frames_shown()), double(kernel::now_us()) / 1e6,
              static_cast<unsigned long long>(gs.lists), static_cast<unsigned long long>(gs.draws),
              static_cast<unsigned long long>(gs.vertices));
-    host::set_renderer(nullptr);
-    g_renderer.reset();
-    gfx::textures::shutdown();
-    ui::shutdown();
-    audio::output_shutdown();
-    host::window_shutdown();
+    shut_down();
     return kernel::exit_code();
 }

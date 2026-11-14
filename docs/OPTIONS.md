@@ -1,8 +1,29 @@
 # Options and controls
 
 ```
-p2ep <disc-image> [options]
+p2ep [disc-image] [options]
 ```
+
+## Launcher
+
+Started without a disc image (for example by double-clicking `p2ep.exe`), the program opens the
+launcher in its window:
+
+- **Disc image.** *Browse...* opens a file dialog for the game's `.chd` or `.iso` file; a file
+  dropped onto the window works too. The image is checked at once: *Ready to play*, or why it
+  cannot be played (not a disc image, not a PSP game, or a different game or version from the
+  one the build was made from). The last image that passed is remembered.
+- **Settings.** The same tabs as the in-game menu (see below); changes apply and are saved at once.
+- **Play** starts the game in the same window (Enter or the gamepad's confirm button presses it
+  when it has the focus); **Quit** closes the program.
+
+With *Show the launcher at start* switched off (General tab), the game starts straight away with
+the remembered image. Holding Shift while starting the program shows the launcher anyway, and so
+does an image that has gone missing or no longer passes the check. Giving an image on the command
+line always skips the launcher.
+
+The program is a Windows program, so no console window opens with it. Started from a terminal, it
+writes its messages there; otherwise errors are shown in a message box.
 
 ## Controls
 
@@ -31,10 +52,11 @@ Circle cancels.
 ## Settings menu
 
 Esc opens the menu over the paused game. It works with the mouse, the keyboard or a gamepad. Its
-tabs are General, Video, Audio, Controls and Help.
+tabs are General, Video, Audio, Controls and Help; the launcher shows the same ones.
 
 | Setting | Meaning |
 |---|---|
+| Show the launcher at start | On by default. Off: starting the program without a disc image plays the image last chosen in the launcher straight away (hold Shift while starting to see the launcher anyway). |
 | Skip the intro at start-up | Off by default. When on, the game starts at the main menu: the start-up notices, the logos and the opening movie are skipped (the window stays black for about a second meanwhile, then the title fades in with its music). Takes effect the next time the game starts. Left idle on the main menu, the game still replays its intro as it does on the console. |
 | Rendering resolution | The resolution the game is drawn at: a multiple of the console's 480x272, from 1x to 10x, or *Match the window* (the default), which picks the smallest multiple that fills the window. |
 | Picture size | *Fit the window* keeps the picture's shape and makes it as large as fits; *Whole multiples only* additionally limits it to exact multiples of 480x272; *Stretch to fill* ignores the shape. |
@@ -66,7 +88,7 @@ Where the console would show its own screens, the program shows its own:
 
 | Option | Meaning |
 |---|---|
-| `--user-dir <dir>` | Where saves, settings and caches are kept. Default: `userdata` next to where the program is started. |
+| `--user-dir <dir>` | Where saves, settings and caches are kept. Default: the `userdata` folder next to `p2ep.exe`, however the program is started. |
 | `--scale <n>` | Rendering resolution multiplier from 1 to 10 for this run, overriding the saved setting. |
 | `--fullscreen` | Start in full screen. |
 | `--window-size <W>x<H>` | Window size in pixels for this run, for example `1920x1088`, overriding the saved setting without changing it. At least 320x180. |
@@ -78,7 +100,7 @@ The user folder holds:
 | Path | Contents |
 |---|---|
 | `ms0\PSP\SAVEDATA\` | Saves, one folder per slot, as plain files with a description and picture. |
-| `settings.ini` | Settings. |
+| `settings.ini` | Settings, and the disc image last chosen in the launcher. |
 | `textures\dump\`, `textures\replace\` | Dumped textures and your texture pack (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)). |
 | `cache\pipelines.bin` | The graphics driver's compiled render states, so later runs start without hitches. Safe to delete. |
 

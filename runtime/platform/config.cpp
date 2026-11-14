@@ -64,7 +64,9 @@ void load_settings(const std::filesystem::path& file) {
         if (value.empty()) continue;
         const u32 n = u32(std::strtoul(value.c_str(), nullptr, 10));
 
-        if (key == "skip_intro") s.skip_intro = n != 0;
+        if (key == "image") s.image = value;
+        else if (key == "show_launcher") s.show_launcher = n != 0;
+        else if (key == "skip_intro") s.skip_intro = n != 0;
         else if (key == "scale") s.scale = std::min<u32>(n, 10);
         else if (key == "window_width") s.window_width = std::clamp<u32>(n, 320, 16384);
         else if (key == "window_height") s.window_height = std::clamp<u32>(n, 180, 16384);
@@ -89,6 +91,8 @@ bool save_settings() {
     if (g_file.empty()) return false;
     const Settings& s = g_settings;
     std::string out = "# Persona 2: Eternal Punishment - settings. Edited by the in-game overlay.\n";
+    out += "image = " + s.image + "\n";
+    append_format(out, "show_launcher = %u\n", u32(s.show_launcher));
     append_format(out, "skip_intro = %u\n", u32(s.skip_intro));
     append_format(out, "scale = %u\n", s.scale);
     append_format(out, "window_width = %u\n", s.window_width);

@@ -29,7 +29,8 @@ Disc images in ISO and CHD format are accepted.
 - Deterministic emulated clock paced to the console's 59.94 Hz, with hold-to-fast-forward at a
   chosen or unlimited speed.
 - Instant disc access: data is read straight from the image with no simulated drive delays.
-- An in-game settings menu (Esc) for video, audio and controls; settings persist.
+- A launcher to pick the disc image (it is checked before the game starts) and change the
+  settings before playing, and an in-game settings menu (Esc); settings persist.
 - An optional quick start that skips the start-up notices, logos and opening movie and boots
   straight to the main menu.
 - Texture packs: the game's textures can be dumped, upscaled with your own tools and loaded back
@@ -51,11 +52,9 @@ Disc images in ISO and CHD format are accepted.
    .\scripts\build.ps1 -Image "D:\path\to\your-image.chd"
    ```
 
-3. Run:
-
-   ```powershell
-   .\build\release\bin\p2ep.exe "D:\path\to\your-image.chd"
-   ```
+3. Start `build\release\bin\p2ep.exe` (double-click it, or run it from a terminal). The launcher
+   opens: choose your disc image with *Browse...* (or drop it onto the window), adjust the
+   settings if you like, and press *Play*. The image is remembered for next time.
 
 Details are in [docs/BUILDING.md](docs/BUILDING.md); controls and command-line options are in
 [docs/OPTIONS.md](docs/OPTIONS.md); how it all works is in

@@ -20,6 +20,7 @@ bool g_all_channels = false;
 std::mutex g_mutex;
 FILE* g_file = nullptr;
 void (*g_fatal_hook)() = nullptr;
+void (*g_fatal_report)(const char*) = nullptr;
 std::chrono::steady_clock::time_point g_last_flush;
 
 const char* level_tag(Level level) {
@@ -93,12 +94,15 @@ void write(Level level, const char* channel, const char* fmt, ...) {
 }
 
 void set_fatal_hook(void (*hook)()) { g_fatal_hook = hook; }
+void set_fatal_report(void (*report)(const char* message)) { g_fatal_report = report; }
 
 void fatal(const char* fmt, ...) {
+    char message[2048];
     va_list args;
     va_start(args, fmt);
-    emit(Level::Error, "fatal", fmt, args);
+    std::vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
+    write(Level::Error, "fatal", "%s", message);
     if (auto hook = g_fatal_hook) {
         g_fatal_hook = nullptr; // a failing hook must not recurse
         hook();
@@ -107,6 +111,10 @@ void fatal(const char* fmt, ...) {
         std::lock_guard lock(g_mutex);
         if (g_file) std::fflush(g_file);
         std::fflush(stderr);
+    }
+    if (auto report = g_fatal_report) {
+        g_fatal_report = nullptr;
+        report(message);
     }
     std::_Exit(3);
 }

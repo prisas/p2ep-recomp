@@ -55,11 +55,14 @@ be built in such a path.
 
 ## Run
 
+Start `build\release\bin\p2ep.exe`; the launcher opens, where you choose the disc image and press
+*Play*. To skip the launcher, give the image on the command line:
+
 ```powershell
 .\build\release\bin\p2ep.exe "D:\path\to\your-image.chd"
 ```
 
-See [OPTIONS.md](OPTIONS.md) for command-line options and controls.
+See [OPTIONS.md](OPTIONS.md) for the launcher, command-line options and controls.
 
 ## Third-party libraries
 

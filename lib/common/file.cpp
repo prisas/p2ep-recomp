@@ -43,6 +43,15 @@ bool write_file_if_changed(const std::filesystem::path& path, std::string_view c
     return write_file(path, content.data(), content.size());
 }
 
+std::filesystem::path utf8_path(std::string_view text) {
+    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
+
+std::string path_utf8(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
 std::string format(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
