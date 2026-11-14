@@ -3,6 +3,7 @@
 #include "lib/common/types.h"
 
 #include <string>
+#include <vector>
 
 // The host window and the controller state derived from keyboard and gamepad.
 namespace p2::host {
@@ -41,6 +42,17 @@ PadState pad_state();
 // Makes the next pump_events() report that the user wants to quit.
 void request_quit();
 void set_fullscreen(bool on);
+
+// The size of the window's picture area in pixels, when it is not full screen or maximised. A
+// size asked for meanwhile is applied when the window is back to normal.
+void set_window_size(u32 width, u32 height);
+
+struct WindowSize {
+    u32 width, height;
+    u32 multiple; // of the console's 480x272, or 0
+};
+// Sizes worth offering for the display the window is on: those that fit it, smallest first.
+std::vector<WindowSize> window_size_choices();
 
 // True while the fast-forward key is held.
 bool turbo_held();

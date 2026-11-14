@@ -40,6 +40,7 @@ int usage() {
               "  --user-dir <dir>      where saves and settings are kept (default: ./userdata)\n"
               "  --scale <n>           rendering resolution multiplier, 1-10 (default: match the window)\n"
               "  --fullscreen          start in full screen\n"
+              "  --window-size <WxH>   window size in pixels this time, for example 1920x1088\n"
               "  --skip-intro          start at the main menu this time, skipping notices, logos and movie\n"
               "  --headless            run without a window or audio device\n"
               "  --overlay             with --headless: draw the overlay and let scripted input answer dialogs\n"
@@ -155,6 +156,7 @@ int main(int argc, char** argv) {
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
     bool no_gpu = false, fullscreen = false, skip_intro = false, dump_textures = false;
+    u32 window_w = 0, window_h = 0; // 0: the saved setting
     u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
@@ -163,6 +165,16 @@ int main(int argc, char** argv) {
         if (a == "--user-dir") opt.user_dir = value();
         else if (a == "--scale") scale = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--fullscreen") fullscreen = true;
+        else if (a == "--window-size") { // <width>x<height>, in pixels
+            const std::string spec = value();
+            char* end = nullptr;
+            window_w = u32(std::strtoul(spec.c_str(), &end, 10));
+            window_h = (*end == 'x' || *end == 'X') ? u32(std::strtoul(end + 1, nullptr, 10)) : 0;
+            if (window_w < 320 || window_h < 180) {
+                std::fprintf(stderr, "--window-size wants <width>x<height>, at least 320x180\n\n");
+                return usage();
+            }
+        }
         else if (a == "--skip-intro") skip_intro = true;
         else if (a == "--headless") opt.headless = true;
         else if (a == "--overlay") opt.overlay = true;
@@ -229,6 +241,8 @@ int main(int argc, char** argv) {
     settings.run_scale = std::min<u32>(scale, 10);
     settings.run_skip_intro = skip_intro;
     settings.run_dump_textures = dump_textures;
+    settings.run_window_width = window_w;
+    settings.run_window_height = window_h;
     gfx::textures::init(opt.user_dir);
     settings.run_unthrottled = opt.unthrottled;
     if (fullscreen) settings.fullscreen = true;

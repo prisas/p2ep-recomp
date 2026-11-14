@@ -20,6 +20,8 @@ struct Settings {
 
     // video
     u32 scale = 0;              // internal resolution multiplier, 1-10; 0 follows the window size
+    u32 window_width = 960;     // size of the window's picture area in pixels, when not full screen
+    u32 window_height = 544;
     bool fullscreen = false;
     bool vsync = true;
     Scaling scaling = Scaling::Fit;
@@ -41,6 +43,7 @@ struct Settings {
     bool run_unthrottled = false; // no waiting for the display
     bool run_skip_intro = false;  // skip the intro this time, whatever `skip_intro` says
     bool run_dump_textures = false; // dump textures this time, whatever `dump_textures` says
+    u32 run_window_width = 0, run_window_height = 0; // window size this time (0: the setting)
 
     Settings();
     void reset_keys();

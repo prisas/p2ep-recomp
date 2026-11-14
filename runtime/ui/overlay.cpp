@@ -371,6 +371,35 @@ void video_tab() {
         changed();
     }
     if (ImGui::Checkbox("Smooth scaling", &s.smooth)) changed();
+
+    // Window size, in pixels: multiples of the console's 480x272 and common sizes that fit the display.
+    const u32 window_w = s.run_window_width ? s.run_window_width : s.window_width;
+    const u32 window_h = s.run_window_width ? s.run_window_height : s.window_height;
+    auto label = [](u32 w, u32 h, u32 multiple) {
+        return multiple ? format("%u x %u  (%ux)", w, h, multiple) : format("%u x %u", w, h);
+    };
+    const std::vector<host::WindowSize> choices = host::window_size_choices();
+    std::string current = format("%u x %u  (custom)", window_w, window_h);
+    for (const host::WindowSize& c : choices)
+        if (c.width == window_w && c.height == window_h) current = label(c.width, c.height, c.multiple);
+    if (ImGui::BeginCombo("Window size", current.c_str())) {
+        for (const host::WindowSize& c : choices) {
+            const bool selected = c.width == window_w && c.height == window_h;
+            if (ImGui::Selectable(label(c.width, c.height, c.multiple).c_str(), selected)) {
+                s.window_width = c.width;
+                s.window_height = c.height;
+                s.run_window_width = s.run_window_height = 0;
+                changed();
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (s.fullscreen) {
+        ImGui::Indent();
+        ImGui::TextDisabled("Used when the game is not in full screen.");
+        ImGui::Unindent();
+    }
     if (ImGui::Checkbox("Full screen", &s.fullscreen)) changed();
     if (ImGui::Checkbox("Vertical sync", &s.vsync)) changed();
     if (ImGui::Checkbox("Show performance", &s.show_fps)) changed();
@@ -591,6 +620,8 @@ void apply_settings() {
     const host::Settings& s = host::settings();
     audio::output_set_volume(f32(s.volume) / 100.0f);
     host::set_fullscreen(s.fullscreen);
+    if (s.run_window_width) host::set_window_size(s.run_window_width, s.run_window_height);
+    else host::set_window_size(s.window_width, s.window_height);
     if (!g_renderer) return;
 
     // Texture packs: switching replacement on or off redraws every texture from scratch.

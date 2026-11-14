@@ -39,6 +39,7 @@ tabs are General, Video, Audio, Controls and Help.
 | Rendering resolution | The resolution the game is drawn at: a multiple of the console's 480x272, from 1x to 10x, or *Match the window* (the default), which picks the smallest multiple that fills the window. |
 | Picture size | *Fit the window* keeps the picture's shape and makes it as large as fits; *Whole multiples only* additionally limits it to exact multiples of 480x272; *Stretch to fill* ignores the shape. |
 | Smooth scaling | Filter the picture when it is scaled to the window. Off gives hard pixel edges. |
+| Window size | The size of the window's picture area in pixels when the game is not in full screen: a multiple of the console's 480x272 (1x, 2x, 3x...) or a common size from 1280x720 to 3840x2160. Only sizes that fit the current display are listed. The window is resized and centred at once; chosen in full screen, the size is used on leaving it. Resizing the window by dragging its border also sets this (shown as *custom*), and the size is remembered for the next start. A saved size larger than the display is shrunk to fit, keeping its shape. Default 960x544 (2x). |
 | Full screen | Borderless full screen on the current display. |
 | Vertical sync | Present in step with the display. Off removes the display's latency at the cost of tearing. |
 | Show performance | A small display of frame rate, speed, frame time and rendering resolution. |
@@ -68,6 +69,7 @@ Where the console would show its own screens, the program shows its own:
 | `--user-dir <dir>` | Where saves, settings and caches are kept. Default: `userdata` next to where the program is started. |
 | `--scale <n>` | Rendering resolution multiplier from 1 to 10 for this run, overriding the saved setting. |
 | `--fullscreen` | Start in full screen. |
+| `--window-size <W>x<H>` | Window size in pixels for this run, for example `1920x1088`, overriding the saved setting without changing it. At least 320x180. |
 | `--skip-intro` | Start at the main menu this time, whatever the setting says. |
 | `--unthrottled` | Do not pace the game to real time and do not wait for the display. |
 
