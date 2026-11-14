@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ge_frag.h"
@@ -200,6 +201,14 @@ private:
         if (error) *error = what;
         return false;
     }
+    // Warns about a feature the game uses that the renderer only approximates, once per kind.
+    template <class... Args>
+    void report_once(u32 kind, const char* fmt, Args... args) {
+        if (!reported_.insert(kind).second) return;
+        std::string text = format(fmt, args...);
+        LOG_WARN("gfx", "%s (frame %llu)", text.c_str(), static_cast<unsigned long long>(frame_));
+    }
+    std::unordered_set<u32> reported_;
     void shutdown();
 
     bool create_device(std::string* error);
@@ -1159,6 +1168,7 @@ void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::V
         if (Framebuffer* source = find_framebuffer(s.tex.addr)) {
             if (source == fb) {
                 textured = false; // sampling the target being drawn to is not supported yet
+                report_once(1, "a draw samples the render target it draws to (%08x); it is drawn untextured", fb->addr);
             } else {
                 if (pass_fb_ == source) end_pass();
                 if (source->color.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
@@ -1220,7 +1230,13 @@ void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::V
                 mask |= VK_COLOR_COMPONENT_A_BIT;
                 pc.flags |= kFlagWriteStencil;
                 pc.stencil_value = 0.0f;
+            } else if (s.stencil_zpass > 2) {
+                report_once(0x100 + s.stencil_zpass, "stencil operation %u on depth pass is not carried out", s.stencil_zpass);
             }
+            if (s.stencil_sfail != 0 || s.stencil_zfail != 0)
+                report_once(0x200 + s.stencil_sfail * 8 + s.stencil_zfail,
+                            "stencil operations on test or depth failure (%u, %u) are not carried out", s.stencil_sfail,
+                            s.stencil_zfail);
         }
         key.color_mask = u8(mask);
         key.depth_test = s.depth_test;
