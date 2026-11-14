@@ -35,7 +35,7 @@ Copy-Item -LiteralPath $exe -Destination $Output
 # The texture upscaler, which the settings menu runs (it builds with the game).
 $texup = Join-Path $bin "p2texup.exe"
 if (Test-Path -LiteralPath $texup) { Copy-Item -LiteralPath $texup -Destination $Output }
-else { Write-Warning "No $texup: the settings' Upscale button will be unavailable." }
+else { Write-Warning "No ${texup}: the settings' Upscale button will be unavailable." }
 Get-ChildItem -LiteralPath $bin -Filter *.dll | Copy-Item -Destination $Output
 
 # Third-party licence texts travel with the binaries, as their licences require.
