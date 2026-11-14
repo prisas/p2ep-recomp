@@ -174,6 +174,7 @@ int main(int argc, char** argv) {
         else if (a == "--frames") opt.frame_limit = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-frames") opt.dump_dir = value();
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
+        else if (a == "--dump-from") opt.dump_from = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-textures") opt.texture_dump_dir = value();
         else if (a == "--dump-audio") audio_dump = value();
         else if (a == "--trace-frame") opt.trace_frame = std::strtoull(value().c_str(), nullptr, 10);

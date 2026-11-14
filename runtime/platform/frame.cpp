@@ -125,7 +125,7 @@ void on_frame() {
         const u64 started = ge::host_ticks();
         renderer->present(target);
         g_present_ticks += ge::host_ticks() - started;
-        if (!opt.dump_dir.empty() && opt.dump_every && g_frames % opt.dump_every == 0) dump_frame();
+        if (!opt.dump_dir.empty() && opt.dump_every && g_frames >= opt.dump_from && g_frames % opt.dump_every == 0) dump_frame();
         // While the menu is open the game stands still: keep showing the same picture under it.
         while (running && ui::menu_open() && !opt.headless) {
             pace(1);

@@ -84,6 +84,7 @@ The user folder holds:
 | `--frames <n>` | Quit after `n` displayed frames. |
 | `--dump-frames <dir>` | Write displayed frames to `dir` as PNG files. |
 | `--dump-every <n>` | With `--dump-frames`: write every `n`th frame (default 60). |
+| `--dump-from <frame>` | With `--dump-frames`: start writing at this frame. |
 | `--dump-textures <dir>` | Write every texture the game uses as a PNG file (colour on the left, alpha on the right). |
 | `--dump-audio <file>` | Record the game's audio output to a WAV file. |
 | `--input <script>` | Scripted controller input: `frame:buttons` pairs separated by commas, buttons as the console's hexadecimal bit mask. From each listed frame on, the pad holds that state. `--input @file` reads the script from a file. |
