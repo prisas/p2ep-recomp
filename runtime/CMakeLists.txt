@@ -85,8 +85,8 @@ add_dependencies(p2ep p2_game_code_generate)
 set_target_properties(p2ep PROPERTIES WIN32_EXECUTABLE TRUE)
 target_link_options(p2ep PRIVATE "/ENTRY:wmainCRTStartup")
 
-# Artwork embedded in the program. The images live outside version control, like the disc image:
-# the variable given, or else the first PNG or JPEG in the folder named at the top of the repository.
+# Artwork embedded in the program: the image the variable names, or else the first PNG or JPEG in
+# the folder named, at the top of the repository (where the project's own artwork is).
 function(p2ep_find_image out variable folder)
     set(image "${${variable}}")
     if(NOT image)

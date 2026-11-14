@@ -43,17 +43,17 @@ libraries on first use (this takes a while once), recompiles the game executable
 | `-Fresh` | Discard the CMake cache first. |
 | `-Target <name>` | Build a single target, for example `p2recomp`. |
 
-**Program icon.** Put a PNG or JPEG in a folder named `icon` at the top of the repository (or
-pass `-DP2EP_ICON=<image>` to CMake) and the build turns it into the icon of `p2ep.exe`, which
-Explorer, the taskbar and the window's title bar show. The image is centre-cropped to a square.
-The `icon` folder is ignored by Git, like the disc image. Without an image the program has no icon
-of its own.
+**Program icon.** The first PNG or JPEG in the `icon` folder at the top of the repository (or the
+image passed with `-DP2EP_ICON=<image>` to CMake) becomes the icon of `p2ep.exe`, which Explorer,
+the taskbar and the window's title bar show. The image is centre-cropped to a square. The
+repository comes with the project's own icon there; without any image the program has no icon of
+its own.
 
-**Launcher background.** Likewise, a PNG or JPEG in a folder named `background` (or
+**Launcher background.** Likewise, the first PNG or JPEG in the `background` folder (or
 `-DP2EP_BACKGROUND=<image>`) is embedded in `p2ep.exe` and shown behind the launcher, filling the
 window with its shape kept (anything cut off comes from the left and evenly from top and bottom)
-under a dark veil that keeps the text readable. The `background` folder is ignored by Git too.
-Without an image the launcher has a plain dark background.
+under a dark veil that keeps the text readable. The repository comes with the project's own
+picture there; without any image the launcher has a plain dark background.
 
 If the repository lives in a folder whose path contains a space, the third-party libraries are
 built under `%LOCALAPPDATA%\p2ep-build` instead of the build folder, because some of them cannot
