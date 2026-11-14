@@ -29,3 +29,6 @@ compile_commands.json
 
 # Packaged builds
 /dist/
+
+# Your icon image (artwork from the game): used by the build, never committed
+/icon/

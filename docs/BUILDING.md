@@ -43,6 +43,12 @@ libraries on first use (this takes a while once), recompiles the game executable
 | `-Fresh` | Discard the CMake cache first. |
 | `-Target <name>` | Build a single target, for example `p2recomp`. |
 
+**Program icon.** Put a PNG or JPEG in a folder named `icon` at the top of the repository (or
+pass `-DP2EP_ICON=<image>` to CMake) and the build turns it into the icon of `p2ep.exe`, which
+Explorer, the taskbar and the window's title bar show. The image is centre-cropped to a square.
+The `icon` folder is ignored by Git, like the disc image. Without an image the program has no icon
+of its own.
+
 If the repository lives in a folder whose path contains a space, the third-party libraries are
 built under `%LOCALAPPDATA%\p2ep-build` instead of the build folder, because some of them cannot
 be built in such a path.

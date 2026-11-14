@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <vector>
 
+#include <windows.h>
+
 namespace p2::host {
 
 namespace {
@@ -62,6 +64,12 @@ void route_pad(PadState pad);
 
 bool window_init(std::string* error) {
     if (options().headless) return true;
+    // When the program carries an icon (resource 1, see runtime/CMakeLists.txt), the window's title
+    // bar and taskbar button use it too.
+    if (FindResourceW(nullptr, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(14) /* RT_GROUP_ICON */)) {
+        SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
+        SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         if (error) *error = std::string("cannot initialise SDL: ") + SDL_GetError();
         return false;

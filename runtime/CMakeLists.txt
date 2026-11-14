@@ -78,6 +78,39 @@ add_executable(p2ep
     ${shader_headers}
     $<TARGET_OBJECTS:p2_game_code>)
 add_dependencies(p2ep p2_game_code_generate)
+
+# The program's icon. The image lives outside version control, like the disc image: P2EP_ICON, or
+# else the first PNG or JPEG in icon/ at the top of the repository. It is converted to a Windows
+# icon at build time and embedded as resource 1, which Explorer, the taskbar and the window use.
+set(icon_image "${P2EP_ICON}")
+if(NOT icon_image)
+    file(GLOB icon_candidates LIST_DIRECTORIES false
+        "${CMAKE_SOURCE_DIR}/icon/*.png" "${CMAKE_SOURCE_DIR}/icon/*.jpg" "${CMAKE_SOURCE_DIR}/icon/*.jpeg")
+    list(SORT icon_candidates)
+    list(GET icon_candidates 0 icon_image)
+    if(icon_image STREQUAL "NOTFOUND")
+        set(icon_image "")
+    endif()
+endif()
+if(icon_image)
+    enable_language(RC)
+    set(icon_file "${CMAKE_CURRENT_BINARY_DIR}/p2ep.ico")
+    set(icon_rc "${CMAKE_CURRENT_BINARY_DIR}/p2ep.rc")
+    add_custom_command(
+        OUTPUT "${icon_file}"
+        COMMAND p2_make_icon "${icon_image}" "${icon_file}"
+        DEPENDS p2_make_icon "${icon_image}"
+        COMMENT "Making the program icon"
+        VERBATIM)
+    file(TO_CMAKE_PATH "${icon_file}" icon_file_rc)
+    file(WRITE "${icon_rc}.in" "1 ICON \"${icon_file_rc}\"\n")
+    configure_file("${icon_rc}.in" "${icon_rc}" COPYONLY)
+    set_source_files_properties("${icon_rc}" PROPERTIES OBJECT_DEPENDS "${icon_file}")
+    target_sources(p2ep PRIVATE "${icon_rc}")
+    message(STATUS "Program icon: ${icon_image}")
+else()
+    message(STATUS "Program icon: none (put a PNG or JPEG in icon/ to have one)")
+endif()
 target_include_directories(p2ep PRIVATE
     "${CMAKE_BINARY_DIR}/generated" "${shader_dir}" ${Stb_INCLUDE_DIR} ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(p2ep PRIVATE ${FFMPEG_LIBRARY_DIRS})

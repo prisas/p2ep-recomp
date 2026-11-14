@@ -19,6 +19,7 @@ option(P2EP_LTO "Link the game with ThinLTO" OFF)
 option(P2EP_DEV "Developer build: guest backtraces, extra checks, validation layers" OFF)
 set(P2EP_IMAGE "" CACHE FILEPATH "Path to your disc image of the game. Enables the recompile step and the game target.")
 set(P2EP_SHARDS 96 CACHE STRING "Number of generated translation units")
+set(P2EP_ICON "" CACHE FILEPATH "Image (PNG or JPEG) for the program's icon. Default: the first image in icon/.")
 
 # Shared warning and codegen settings for first-party targets.
 add_library(p2ep_options INTERFACE)
@@ -34,6 +35,7 @@ target_include_directories(p2ep_options INTERFACE "${CMAKE_SOURCE_DIR}")
 
 add_subdirectory(lib)
 add_subdirectory(tools/recomp)
+add_subdirectory(tools/icon)
 
 if(P2EP_BUILD_TESTS)
     enable_testing()
