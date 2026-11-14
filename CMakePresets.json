@@ -41,6 +41,7 @@
     ],
     "testPresets": [
         { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+        { "name": "release-lto", "configurePreset": "release-lto", "output": { "outputOnFailure": true } },
         { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }
     ]
 }

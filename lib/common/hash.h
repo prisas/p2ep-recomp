@@ -28,4 +28,14 @@ constexpr u64 fnv1a64(const void* data, size_t size, u64 seed = 0xcbf29ce4842223
     return h;
 }
 
+// Fast 64-bit hash for spotting changes in large buffers (textures, palettes). Not stable across
+// machines or runs: the fastest implementation the processor supports is chosen at start-up, and
+// the implementations do not agree with one another.
+u64 hash_bytes(const void* data, size_t size);
+
+// The individual implementations, exposed for testing.
+u64 hash_bytes_scalar(const void* data, size_t size);
+u64 hash_bytes_avx2(const void* data, size_t size); // only callable when cpu_has_avx2()
+bool cpu_has_avx2();
+
 } // namespace p2

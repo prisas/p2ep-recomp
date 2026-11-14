@@ -33,6 +33,9 @@ struct TextureDesc {
     // The game touched the texture state since the last draw: its pixels may have changed even if
     // they were already checked this frame.
     bool revalidate = false;
+    // Advances whenever the game's code has had a chance to run. Pixels compared in the current
+    // epoch cannot have changed since.
+    u64 memory_epoch = 0;
     bool linear_min = false;
     bool linear_mag = false;
     bool clamp_s = false;

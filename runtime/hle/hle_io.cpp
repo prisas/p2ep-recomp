@@ -427,7 +427,8 @@ HLE(sceIoDevctl) {
     case 0x02025801: // memory stick driver status
         if (mem::valid(out, 4)) mem::w32(out, 4);
         RET(0);
-    case 0x02425823: { // free space
+    case 0x02425818:   // capacity
+    case 0x02425823: { // free space (same layout)
         u32 info = mem::valid(in, 4) ? mem::r32(in) : 0;
         if (mem::valid(info, 20)) {
             const u32 cluster_sectors = 0x40, sector_size = 0x200;

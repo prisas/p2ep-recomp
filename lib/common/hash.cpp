@@ -1,6 +1,10 @@
 #include "lib/common/hash.h"
 
 #include <bit>
+#include <cstring>
+
+#include <immintrin.h>
+#include <intrin.h>
 
 namespace p2 {
 
@@ -129,6 +133,130 @@ std::array<u8, 32> sha256(const void* data, size_t size) {
     std::array<u8, 32> out;
     for (int i = 0; i < 8; ++i) put_be32(out.data() + i * 4, h[i]);
     return out;
+}
+
+// --- fast change-detection hash ---------------------------------------------------------------------------------
+
+namespace {
+
+constexpr u64 kP1 = 0x9E3779B185EBCA87ull, kP2 = 0xC2B2AE3D27D4EB4Full, kP3 = 0x165667B19E3779F9ull,
+              kP4 = 0x85EBCA77C2B2AE63ull, kP5 = 0x27D4EB2F165667C5ull;
+
+inline u64 avalanche(u64 h) {
+    h ^= h >> 33;
+    h *= kP2;
+    h ^= h >> 29;
+    h *= kP3;
+    h ^= h >> 32;
+    return h;
+}
+
+inline u64 lane_round(u64 acc, u64 input) { return std::rotl(acc + input * kP2, 31) * kP1; }
+
+} // namespace
+
+// Four independent lanes, so consecutive words do not wait for one another's multiplications.
+u64 hash_bytes_scalar(const void* data, size_t size) {
+    const u8* p = static_cast<const u8*>(data);
+    const u8* const end = p + size;
+    u64 h = kP5;
+    if (size >= 32) {
+        u64 a = kP1 + kP2, b = kP2, c = 0, d = 0 - kP1;
+        do {
+            a = lane_round(a, load_le<u64>(p));
+            b = lane_round(b, load_le<u64>(p + 8));
+            c = lane_round(c, load_le<u64>(p + 16));
+            d = lane_round(d, load_le<u64>(p + 24));
+            p += 32;
+        } while (p + 32 <= end);
+        h = std::rotl(a, 1) + std::rotl(b, 7) + std::rotl(c, 12) + std::rotl(d, 18);
+    }
+    h += size;
+    for (; p + 8 <= end; p += 8) h = std::rotl(h ^ lane_round(0, load_le<u64>(p)), 27) * kP1 + kP4;
+    for (; p < end; ++p) h = std::rotl(h ^ (*p * kP5), 11) * kP1;
+    return avalanche(h);
+}
+
+__attribute__((target("xsave"))) bool cpu_has_avx2() {
+    int regs[4];
+    __cpuid(regs, 0);
+    if (regs[0] < 7) return false;
+    __cpuid(regs, 1);
+    const bool os_saves_ymm = (regs[2] & (1 << 27)) && (regs[2] & (1 << 28)) && (_xgetbv(0) & 6) == 6;
+    if (!os_saves_ymm) return false;
+    __cpuidex(regs, 7, 0);
+    return (regs[1] & (1 << 5)) != 0;
+}
+
+// Eight 64-bit accumulators in two vectors. Each 64-byte stripe adds, per lane, the product of the
+// two halves of its keyed word and the neighbouring lane's raw word, so any changed word alters a
+// lane for certain; the key advances every stripe so that moving data between stripes shows too.
+#define P2_AVX2 __attribute__((target("avx2")))
+
+namespace {
+
+struct WideState {
+    __m256i acc[2];
+    __m256i key[2];
+};
+
+P2_AVX2 inline void wide_stripe(WideState& s, const u8* at) {
+    const __m256i step = _mm256_set1_epi64x(s64(0x9E3779B97F4A7C15ull));
+    for (int i = 0; i < 2; ++i) {
+        const __m256i d = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(at + i * 32));
+        const __m256i m = _mm256_xor_si256(d, s.key[i]);
+        s.acc[i] = _mm256_add_epi64(s.acc[i], _mm256_shuffle_epi32(d, _MM_SHUFFLE(1, 0, 3, 2)));
+        s.acc[i] = _mm256_add_epi64(s.acc[i], _mm256_mul_epu32(m, _mm256_srli_epi64(m, 32)));
+        s.key[i] = _mm256_add_epi64(s.key[i], step);
+    }
+}
+
+// Mixes the accumulators so that long inputs keep using all their bits.
+P2_AVX2 inline void wide_scramble(WideState& s) {
+    const __m256i prime = _mm256_set1_epi64x(s64(0x9E3779B1ull));
+    for (int i = 0; i < 2; ++i) {
+        const __m256i x = _mm256_xor_si256(_mm256_xor_si256(s.acc[i], _mm256_srli_epi64(s.acc[i], 47)), s.key[i]);
+        const __m256i low = _mm256_mul_epu32(x, prime);
+        const __m256i high = _mm256_mul_epu32(_mm256_srli_epi64(x, 32), prime);
+        s.acc[i] = _mm256_add_epi64(low, _mm256_slli_epi64(high, 32));
+    }
+}
+
+} // namespace
+
+P2_AVX2 u64 hash_bytes_avx2(const void* data, size_t size) {
+    const u8* p = static_cast<const u8*>(data);
+    WideState s;
+    s.key[0] = _mm256_set_epi64x(s64(0x1F67B3B7A4A44072ull), s64(0x78E5C0CC4EE679CBull), s64(0x2172FFCC7DD05A82ull),
+                                 s64(0xBE4BA423396CFEB8ull));
+    s.key[1] = _mm256_set_epi64x(s64(0x4575B9D5D9C94AEDull), s64(0x3A6E0B4D8F0D1B3Dull), s64(0xD8ACDEA946EF1938ull),
+                                 s64(0xCB79E64ECCC0E578ull));
+    s.acc[0] = _mm256_set_epi64x(s64(kP4), s64(kP3), s64(kP2), s64(kP1));
+    s.acc[1] = _mm256_set_epi64x(s64(kP1), s64(kP5), s64(kP3), s64(kP2));
+
+    size_t remaining = size;
+    for (u32 n = 0; remaining >= 64; remaining -= 64, p += 64) {
+        wide_stripe(s, p);
+        if ((++n & 15) == 0) wide_scramble(s);
+    }
+    if (remaining) {
+        u8 tail[64] = {};
+        std::memcpy(tail, p, remaining);
+        wide_stripe(s, tail);
+    }
+    wide_scramble(s);
+
+    u64 lanes[8];
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(lanes), s.acc[0]);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(lanes + 4), s.acc[1]);
+    u64 h = u64(size) * kP1 + kP5;
+    for (u64 lane : lanes) h = std::rotl(h ^ avalanche(lane), 27) * kP1 + kP4;
+    return avalanche(h);
+}
+
+u64 hash_bytes(const void* data, size_t size) {
+    static u64 (*const chosen)(const void*, size_t) = cpu_has_avx2() ? hash_bytes_avx2 : hash_bytes_scalar;
+    return chosen(data, size);
 }
 
 std::string to_hex(const u8* bytes, size_t size) {

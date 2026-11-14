@@ -57,8 +57,8 @@ See [OPTIONS.md](OPTIONS.md) for command-line options and controls.
 
 ## Third-party libraries
 
-Fetched and built automatically, at versions pinned by `vcpkg-configuration.json` and
-`lib/CMakeLists.txt`:
+Fetched and built automatically, at versions pinned by `vcpkg-configuration.json`,
+`lib/CMakeLists.txt` and `runtime/CMakeLists.txt`:
 
 | Library | Use | Licence |
 |---|---|---|
@@ -66,10 +66,25 @@ Fetched and built automatically, at versions pinned by `vcpkg-configuration.json
 | FFmpeg (libavcodec, libswscale, libswresample) | H.264 and ATRAC decoding | LGPL 2.1 or later |
 | Vulkan Headers, volk, Vulkan Memory Allocator | Rendering | Apache 2.0 / MIT |
 | glslang | Shader compilation at build time | BSD-3-Clause and others |
+| Dear ImGui | Settings menu and system dialogs | MIT |
 | libchdr | CHD image support | BSD-3-Clause |
-| stb | PNG output | MIT / public domain |
+| stb | PNG reading and writing | MIT / public domain |
 
-FFmpeg is linked dynamically; its DLLs are placed next to the executable.
+FFmpeg and SDL are linked dynamically; their DLLs are placed next to the executable.
+
+## Package
+
+```powershell
+.\scripts\package.ps1
+```
+
+copies the program, the DLLs it needs and the third-party licence texts into `dist\p2ep`, a folder
+that runs on its own on any machine that meets the run-time requirements above (Visual Studio is
+only needed to build; the Microsoft Visual C++ runtime it also needs is present on almost every
+Windows installation, and Microsoft's free "Visual C++ Redistributable" provides it otherwise). It contains no game data: the disc image is still given on the command
+line, and the program refuses to run with an image whose executable is not the one it was built
+from. Because the program contains the translation of that executable, the package is for your
+own use, not for passing on.
 
 ## Troubleshooting
 

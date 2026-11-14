@@ -8,6 +8,7 @@
 #include "runtime/gfx/vk/vk_renderer.h"
 
 #include "lib/common/file.h"
+#include "lib/common/hash.h"
 #include "lib/common/log.h"
 #include "runtime/ge/ge.h"
 #include "runtime/platform/frame.h"
@@ -115,6 +116,7 @@ struct Texture {
     Image image;
     u64 content_hash = 0;
     u64 checked_frame = ~0ull;
+    u64 checked_epoch = ~0ull; // the memory epoch (see TextureDesc) at the last comparison
     u64 used_frame = 0;
     u32 bytes = 0;
 };
@@ -157,17 +159,6 @@ struct PipelineKeyHash {
 static_assert(sizeof(PipelineKey) == 16);
 
 // Fast non-cryptographic hash for change detection of texture data.
-u64 fast_hash(const u8* data, size_t size) {
-    u64 h = 0x9E3779B97F4A7C15ull ^ (size * 0xFF51AFD7ED558CCDull);
-    size_t i = 0;
-    for (; i + 8 <= size; i += 8) {
-        h = (h ^ load_le<u64>(data + i)) * 0xC2B2AE3D27D4EB4Full;
-        h = (h << 31) | (h >> 33);
-    }
-    for (; i < size; ++i) h = (h ^ data[i]) * 0x100000001B3ull;
-    return h ^ (h >> 32);
-}
-
 void unpack_color(u32 c, f32 out[4]) {
     out[0] = f32(c & 0xFF) / 255.0f;
     out[1] = f32((c >> 8) & 0xFF) / 255.0f;
@@ -884,16 +875,21 @@ Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
                    desc.clut_format | (desc.clut_shift << 4) | (desc.clut_mask << 12) | (desc.clut_base << 20),
                    desc.clut_hash};
     auto it = textures_.find(key);
-    if (it != textures_.end() && it->second.checked_frame == frame_ && !desc.revalidate) {
+    // A cached texture is good without looking at its pixels again when they were compared this
+    // frame and either the game has not touched the texture state since, or its code has not run
+    // since the comparison and so cannot have changed them.
+    if (it != textures_.end() && it->second.checked_frame == frame_ &&
+        (!desc.revalidate || it->second.checked_epoch == desc.memory_epoch)) {
         it->second.used_frame = frame_;
         return &it->second;
     }
 
     const u32 bytes = ge::texture_byte_size(desc);
     if (!mem::valid(desc.addr, bytes)) return nullptr;
-    const u64 hash = fast_hash(mem::ptr(desc.addr), bytes);
+    const u64 hash = hash_bytes(mem::ptr(desc.addr), bytes);
     if (it != textures_.end() && it->second.content_hash == hash) {
         it->second.checked_frame = it->second.used_frame = frame_;
+        it->second.checked_epoch = desc.memory_epoch;
         return &it->second;
     }
 
@@ -930,6 +926,7 @@ Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
     tex->content_hash = hash;
     tex->bytes = bytes;
     tex->checked_frame = tex->used_frame = frame_;
+    tex->checked_epoch = desc.memory_epoch;
     return tex;
 }
 

@@ -28,7 +28,12 @@ struct Stats {
     u64 commands = 0;
     u64 draws = 0;
     u64 vertices = 0;
+    u64 ticks = 0; // host time spent processing lists, in host_ticks() units
 };
+
+// A monotonic host clock for coarse profiling, and its rate.
+u64 host_ticks();
+u64 host_ticks_per_second();
 Stats& stats();
 
 // While on, every draw and block transfer is written to the log with the state that shapes it.

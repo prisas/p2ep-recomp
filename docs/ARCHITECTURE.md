@@ -29,7 +29,8 @@ part of this repository.
 | `runtime/ge` | Display-list processor: vertex decoding, transform and lighting, textures |
 | `runtime/gfx/vk` | Vulkan renderer and shaders |
 | `runtime/audio`, `runtime/media` | Audio device output; ATRAC and H.264 decoding |
-| `runtime/platform` | Window, input, frame pacing, dumps |
+| `runtime/platform` | Window, input, settings, frame pacing, dumps |
+| `runtime/ui` | Overlay: settings menu, system dialogs, performance display |
 | `data/psp_api` | Names of the console's system functions, grouped by library |
 | `data/code_blobs.txt` | Files the game loads at fixed addresses and executes |
 | `tests` | Unit tests and an end-to-end recompiler test |
@@ -50,7 +51,10 @@ cover code that lives outside the executable's code sections:
 - direct jumps from regular code into data sections are followed and the routines they reach are
   translated;
 - files listed in `data/code_blobs.txt` are laid over the memory image at their load address
-  first, so routines inside them are found the same way.
+  first, so routines inside them are found the same way;
+- such routines are often reached only through addresses that carry no relocation, so a stack-frame
+  prologue that directly follows a return, or a return that directly precedes a known routine, is
+  taken as the boundary of another routine.
 
 **Analyse.** Each function is the code reachable from its entry without leaving the address range
 up to the next function. Blocks are split at branch targets; `switch` statements are recognised
@@ -102,9 +106,22 @@ nested guest calls on the calling fiber.
 **Graphics.** The display-list processor executes the command lists the game submits. Vertices are
 decoded, skinned, transformed and lit on the CPU and reach the renderer as ready-to-rasterise
 primitives with the pixel-pipeline state they need. The Vulkan renderer keeps one image per guest
-render target at a multiple of the original resolution, caches textures by address and content
-hash, and uses a single fragment shader for the fixed-function pixel pipeline, so no shader is
-ever compiled while playing. The frame the game selects for display is scaled into the window.
+render target at a multiple of the original resolution and uses a single fragment shader for the
+fixed-function pixel pipeline, so no shader is ever compiled while playing; the driver's compiled
+render states are kept on disk between runs. The frame the game selects for display is scaled into
+the window.
+
+Textures are cached by address, layout and palette, and a cached texture is trusted only as long
+as its pixels cannot have changed. The game may rewrite a texture between any two draws, so the
+pixels are compared again (by a vectorised hash) whenever the game has touched the texture state
+*and* its code has run since the last comparison. Display lists run to completion when they are
+submitted, so no game code runs between the draws of one submission and they share a comparison.
+
+**Overlay and system dialogs.** The settings menu and the screens the console's system software
+would show (save-slot lists, messages) are drawn with Dear ImGui into the final picture, after the
+game's frame has been scaled into it. A dialog keeps the game's dialog call in its *running* state
+until the player answers, exactly as the console's does, and takes the pad away from the game
+meanwhile. Unattended runs without the overlay answer dialogs with a default instead.
 
 **Audio.** The game's own sound engine drives a 32-voice software synthesizer and streams
 ATRAC3plus music; both are mixed at 44.1 kHz in guest time and handed to the sound device, with a
@@ -123,4 +140,9 @@ user directory; saves are stored there as plain files next to a `PARAM.SFO`.
 - `p2_recomp_tests`: a synthetic guest program is assembled, recompiled at build time and executed;
   every routine is checked against reference results computed in C++.
 - `p2ep --headless --frames N --dump-frames <dir>` runs the game without a window and writes
-  frames as PNG files. Because guest time is deterministic, such runs are reproducible.
+  frames as PNG files. Because guest time is deterministic, such runs are reproducible: the same
+  input script gives byte-identical frames, which is how a change to the renderer or the
+  recompiler is checked for regressions.
+- For tracking down a wrong picture or value, the program can log every draw of one frame, report
+  which game routine writes a given memory range, and dump the game's memory
+  (see [OPTIONS.md](OPTIONS.md)).

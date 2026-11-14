@@ -84,6 +84,6 @@ target_link_libraries(p2ep PRIVATE
     p2_common p2_disc p2_psp p2_imgui
     SDL3::SDL3 Vulkan::Headers volk::volk GPUOpen::VulkanMemoryAllocator ${FFMPEG_LIBRARIES})
 if(P2EP_LTO)
+    # The linker recognises the bitcode objects on its own; only the compiler needs the flag.
     target_compile_options(p2ep PRIVATE /clang:-flto=thin)
-    target_link_options(p2ep PRIVATE /clang:-flto=thin)
 endif()

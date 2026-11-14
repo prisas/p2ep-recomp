@@ -536,9 +536,9 @@ void apply_settings() {
     audio::output_set_volume(f32(s.volume) / 100.0f);
     host::set_fullscreen(s.fullscreen);
     if (!g_renderer) return;
-    g_renderer->set_vsync(s.vsync);
+    g_renderer->set_vsync(s.vsync && !s.run_unthrottled);
     g_renderer->set_fit(gfx::Fit(u32(s.scaling)), s.smooth);
-    u32 scale = s.scale;
+    u32 scale = s.run_scale ? s.run_scale : s.scale;
     if (scale == 0) { // follow the output: enough pixels that the picture is never magnified
         u32 w = 0, h = 0;
         g_renderer->output_size(w, h);

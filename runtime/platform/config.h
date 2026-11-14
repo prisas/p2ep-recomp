@@ -30,6 +30,10 @@ struct Settings {
     u32 turbo_speed = 0;        // fast-forward limit as a multiple of normal speed; 0 is unlimited
     u32 keys[kPadButtonCount];  // SDL scancodes, in kPadButtonBits order
 
+    // For this run only, from the command line; never written to the settings file.
+    u32 run_scale = 0;          // overrides `scale` when not zero
+    bool run_unthrottled = false; // no waiting for the display
+
     Settings();
     void reset_keys();
 };

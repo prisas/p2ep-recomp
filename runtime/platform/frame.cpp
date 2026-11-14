@@ -34,6 +34,7 @@ gfx::Renderer* g_renderer = nullptr;
 s64 g_qpc_frequency = 0;
 s64 g_next_deadline = 0;
 s64 g_last_present = 0;
+u64 g_present_ticks = 0;
 HANDLE g_timer = nullptr;
 
 constexpr double kFrameSeconds = 1.001 / 60.0;
@@ -95,6 +96,7 @@ void dump_frame() {
 } // namespace
 
 u64 frames_shown() { return g_frames; }
+u64 present_ticks() { return g_present_ticks; }
 
 bool write_png(const std::string& path, u32 width, u32 height, const void* rgba) {
     return stbi_write_png(path.c_str(), int(width), int(height), 4, rgba, int(width) * 4) != 0;
@@ -120,7 +122,9 @@ void on_frame() {
     if (ge::Renderer* renderer = ge::renderer()) {
         const hle::DisplayState& display = hle::display();
         ge::DisplayTarget target{display.fb_addr, display.fb_stride, display.fb_format};
+        const u64 started = ge::host_ticks();
         renderer->present(target);
+        g_present_ticks += ge::host_ticks() - started;
         if (!opt.dump_dir.empty() && opt.dump_every && g_frames % opt.dump_every == 0) dump_frame();
         // While the menu is open the game stands still: keep showing the same picture under it.
         while (running && ui::menu_open() && !opt.headless) {

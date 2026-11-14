@@ -24,11 +24,17 @@ Disc images in ISO and CHD format are accepted.
 
 - Ahead-of-time translation of the whole executable, including the routines the translation patch
   adds outside the regular code sections.
-- Vulkan renderer with selectable internal resolution (up to ten times the original 480x272).
-- Deterministic emulated clock paced to the console's 59.94 Hz, with hold-to-fast-forward.
+- Vulkan renderer that draws at up to ten times the original 480x272; by default it matches the
+  window, so the picture is sharp at any size.
+- Deterministic emulated clock paced to the console's 59.94 Hz, with hold-to-fast-forward at a
+  chosen or unlimited speed.
 - Instant disc access: data is read straight from the image with no simulated drive delays.
-- Keyboard and gamepad input, hot-pluggable.
-- Saves as plain files in a normal folder.
+- An in-game settings menu (Esc) for video, audio and controls; settings persist.
+- Save, load and message screens of its own in place of the console's, with save pictures and
+  descriptions. Saves are plain files in a normal folder.
+- Keyboard (rebindable) and gamepad input, hot-pluggable.
+- Fast: the opening minutes of the game run at about 37 times real time on a current desktop
+  processor when left unthrottled, so normal play uses a few percent of one core.
 
 ## Quick start
 
@@ -52,8 +58,10 @@ Details are in [docs/BUILDING.md](docs/BUILDING.md); controls and command-line o
 
 ## Status
 
-See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for what has been verified and what is known
-not to work yet.
+The game starts, plays its movies, runs the opening of the story, and saves and loads. Battles and
+everything after the first area have not been tested yet. See
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for exactly what has been verified, what has not,
+and the known limitations.
 
 ## Legal
 

@@ -7,6 +7,7 @@
 #include "runtime/mem/memory.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -50,6 +51,7 @@ std::vector<int> g_queue;
 bool g_executing = false;
 u32 g_vertex_addr = 0, g_index_addr = 0, g_offset_addr = 0;
 bool g_texture_touched = true; // a texture command ran since the last textured draw
+u64 g_memory_epoch = 0;       // advances whenever guest code may have run (see TextureDesc)
 bool g_trace_draws = false;
 
 std::vector<Vertex> g_vertices;
@@ -498,6 +500,7 @@ void fill_draw_state(const State& s, DrawState& d) {
     if (d.texture) {
         TextureDesc& t = d.tex;
         t.revalidate = g_texture_touched;
+        t.memory_epoch = g_memory_epoch;
         g_texture_touched = false;
         t.addr = s.tex_addr(0);
         t.format = s.tex_format();
@@ -517,7 +520,7 @@ void fill_draw_state(const State& s, DrawState& d) {
             // Only the entries this texture can reach matter for its identity.
             u32 entries = t.format == kTexClut4 ? 16 : 256;
             u32 bytes = std::min<u32>((t.clut_base + entries) * (t.clut_format == 3 ? 4 : 2), sizeof(s.clut));
-            t.clut_hash = fnv1a64(s.clut, bytes);
+            t.clut_hash = hash_bytes(s.clut, bytes);
         }
     }
 }
@@ -712,7 +715,9 @@ void matrix_data(u8 number_cmd, f32* matrix, u32 size, u32 arg) {
 }
 
 void call_guest_handler(u32 fn, u32 id, u32 arg, u32 pc) {
-    if (fn) kernel::call_guest_interrupt(fn, id, arg, pc);
+    if (!fn) return;
+    kernel::call_guest_interrupt(fn, id, arg, pc);
+    ++g_memory_epoch; // the handler is game code: it may have rewritten texture memory
 }
 
 void end_of_list(List& list, u32 end_arg) {
@@ -853,6 +858,8 @@ void run_list(int id) {
 void process_queue() {
     if (g_executing) return;
     g_executing = true;
+    const u64 started = host_ticks();
+    ++g_memory_epoch; // the game ran since the last list was processed
     while (!g_queue.empty()) {
         int id = g_queue.front();
         List& list = g_lists[id];
@@ -861,6 +868,7 @@ void process_queue() {
         if (list.state == ListState::Stalled) break; // later lists wait behind a stalled one
         g_queue.erase(g_queue.begin());
     }
+    g_stats.ticks += host_ticks() - started;
     g_executing = false;
 }
 
@@ -890,6 +898,12 @@ void init(Renderer* renderer) {
 Renderer* renderer() { return g_renderer; }
 State& state() { return g_state; }
 Stats& stats() { return g_stats; }
+
+u64 host_ticks() {
+    return u64(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+u64 host_ticks_per_second() { return 1000000000ull; }
 void set_draw_trace(bool on) { g_trace_draws = on; }
 
 s32 enqueue(u32 list_addr, u32 stall_addr, s32 callback_id, bool head) {

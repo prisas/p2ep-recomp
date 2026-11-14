@@ -47,7 +47,7 @@ int usage() {
               "  --dump-every <n>      ... every nth frame (default 60)\n"
               "  --dump-textures <dir> write every decoded texture as a PNG file\n"
               "  --dump-audio <file>   record the game's audio output to a WAV file\n"
-              "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,...\n"
+              "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,... (or @file)\n"
               "  --no-gpu              do not create a renderer (system-call testing only)\n"
               "  --log <channels>      comma-separated trace channels: hle,io,thread,mem,display,ge,audio,all\n"
               "  --log-file <path>     also write the log to a file\n"
@@ -190,7 +190,18 @@ int main(int argc, char** argv) {
             opt.watch_size = *end == ':' ? u32(std::strtoul(end + 1, &end, 10)) : 4;
             opt.watch_from = *end == '@' ? std::strtoull(end + 1, nullptr, 10) : 0;
         }
-        else if (a == "--input") host::set_input_script(value());
+        else if (a == "--input") { // the script itself, or @<file> holding it
+            std::string script = value();
+            if (!script.empty() && script[0] == '@') {
+                std::vector<u8> bytes;
+                if (!read_file(script.substr(1), bytes)) {
+                    std::fprintf(stderr, "cannot read the input script %s\n", script.c_str() + 1);
+                    return 2;
+                }
+                script.assign(bytes.begin(), bytes.end());
+            }
+            host::set_input_script(script);
+        }
         else if (a == "--no-gpu") no_gpu = true;
         else if (a == "--log") channels = value();
         else if (a == "--log-file") log_file = value();
@@ -214,8 +225,8 @@ int main(int argc, char** argv) {
     // Settings come from the user folder; options given on the command line win for this run.
     host::load_settings(opt.user_dir / "settings.ini");
     host::Settings& settings = host::settings();
-    if (scale) settings.scale = std::min<u32>(scale, 10);
-    if (opt.unthrottled) settings.vsync = false;
+    settings.run_scale = std::min<u32>(scale, 10);
+    settings.run_unthrottled = opt.unthrottled;
     if (fullscreen) settings.fullscreen = true;
 
     std::string error;
@@ -230,8 +241,8 @@ int main(int argc, char** argv) {
         const bool overlay = (host::window_handle() || opt.overlay) && ui::init(host::window_handle(), kOffscreenWidth, kOffscreenHeight);
         gfx::RendererOptions renderer_options;
         renderer_options.sdl_window = host::window_handle();
-        renderer_options.scale = std::max<u32>(settings.scale, 1);
-        renderer_options.vsync = settings.vsync;
+        renderer_options.scale = std::max<u32>(settings.run_scale ? settings.run_scale : settings.scale, 1);
+        renderer_options.vsync = settings.vsync && !settings.run_unthrottled;
         renderer_options.overlay = overlay;
         if (overlay && !host::window_handle()) {
             renderer_options.offscreen_width = kOffscreenWidth;
@@ -253,8 +264,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const u64 run_started = ge::host_ticks();
     kernel::run();
     const ge::Stats& gs = ge::stats();
+    {
+        // Where the host time went: display-list processing, presentation, and everything else
+        // (the translated game code and the system-call layer).
+        const double rate = double(ge::host_ticks_per_second());
+        const double total = double(ge::host_ticks() - run_started) / rate;
+        const double lists = double(gs.ticks) / rate, present = double(host::present_ticks()) / rate;
+        const double game_seconds = double(kernel::now_us()) / 1e6;
+        LOG_INFO("perf", "%.2f s of host time for %.2f s of game time (%.1fx): game code %.2f s, graphics %.2f s, presentation %.2f s",
+                 total, game_seconds, total > 0.0 ? game_seconds / total : 0.0, total - lists - present, lists, present);
+    }
     LOG_INFO("boot", "stopped after %llu frame(s), %.2f s of game time; %llu display lists, %llu draws, %llu vertices",
              static_cast<unsigned long long>(host::frames_shown()), double(kernel::now_us()) / 1e6,
              static_cast<unsigned long long>(gs.lists), static_cast<unsigned long long>(gs.draws),
