@@ -33,7 +33,7 @@ Disc images in ISO and CHD format are accepted.
 - Save, load and message screens of its own in place of the console's, with save pictures and
   descriptions. Saves are plain files in a normal folder.
 - Keyboard (rebindable) and gamepad input, hot-pluggable.
-- Fast: the opening minutes of the game run at about 37 times real time on a current desktop
+- Fast: the opening minutes of the game run at about 43 times real time on a current desktop
   processor when left unthrottled, so normal play uses a few percent of one core.
 
 ## Quick start
@@ -58,8 +58,8 @@ Details are in [docs/BUILDING.md](docs/BUILDING.md); controls and command-line o
 
 ## Status
 
-The game starts, plays its movies, runs the opening of the story as far as the school, and saves
-and loads. Battles have not been tested yet. See
+The game starts, plays its movies, runs the opening of the story into the first dungeon, fights
+battles (including spells, talking to demons, level-ups and game over), and saves and loads. See
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for exactly what has been verified, what has not,
 and the known limitations.
 
