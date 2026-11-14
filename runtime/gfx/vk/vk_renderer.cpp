@@ -244,7 +244,6 @@ private:
         VkDescriptorSet set = VK_NULL_HANDLE;
     };
     std::unordered_map<u64, UiTexture> ui_textures_;
-    std::vector<UiTexture> ui_garbage_; // released once the frame that may still use them is done
     VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
     size_t pipelines_at_load_ = 0;
 
@@ -255,8 +254,28 @@ private:
     u32 queue_family_ = 0;
     VmaAllocator allocator_ = nullptr;
     VkCommandPool pool_ = VK_NULL_HANDLE;
-    VkCommandBuffer cmd_ = VK_NULL_HANDLE;
-    VkFence fence_ = VK_NULL_HANDLE;
+    VkCommandBuffer cmd_ = VK_NULL_HANDLE; // the current frame slot's command buffer
+
+    // Frames in flight: while the GPU works through one frame the next is recorded into the other
+    // slot. Anything a submitted frame may still use is released only once that slot comes round
+    // again, which is after its frame has finished.
+    static constexpr u32 kFramesInFlight = 2;
+    struct FrameSlot {
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        VkSemaphore acquired = VK_NULL_HANDLE; // signalled when the swapchain image is ready
+        bool pending = false;                  // submitted and not yet waited for
+        Buffer vertex, index, staging;         // streaming data for this slot's commands
+        std::vector<Image> dead_images;
+        std::vector<VkDescriptorSet> dead_sets;
+        std::vector<UiTexture> dead_ui;
+    };
+    FrameSlot slots_[kFramesInFlight];
+    u32 slot_index_ = 0;
+    FrameSlot& slot() { return slots_[slot_index_]; }
+    void submit(VkSubmitInfo& si);
+    void retire(FrameSlot& s);
+    void advance_slot();
 
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
@@ -264,7 +283,7 @@ private:
     std::vector<VkImageView> swap_views_;
     VkFormat swap_format_ = VK_FORMAT_UNDEFINED;
     VkExtent2D swap_extent_{};
-    VkSemaphore acquire_sem_ = VK_NULL_HANDLE, render_sem_ = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> render_sems_; // one per swapchain image: its picture is complete
 
     VkShaderModule vert_ = VK_NULL_HANDLE, frag_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
@@ -272,7 +291,7 @@ private:
     VkDescriptorPool desc_pool_ = VK_NULL_HANDLE;
     VkSampler samplers_[16] = {};
 
-    Buffer vertex_buf_, index_buf_, staging_, readback_;
+    Buffer readback_;
     Image white_, raw_display_, transfer_tmp_, capture_;
 
     std::unordered_map<u32, Framebuffer> framebuffers_;
@@ -395,16 +414,18 @@ bool VulkanRenderer::create_device(std::string* error) {
     pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pci.queueFamilyIndex = queue_family_;
     vkCreateCommandPool(device_, &pci, nullptr, &pool_);
-    VkCommandBufferAllocateInfo cai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    cai.commandPool = pool_;
-    cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cai.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_, &cai, &cmd_);
-    VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    vkCreateFence(device_, &fci, nullptr, &fence_);
-    VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    vkCreateSemaphore(device_, &sci, nullptr, &acquire_sem_);
-    vkCreateSemaphore(device_, &sci, nullptr, &render_sem_);
+    for (FrameSlot& s : slots_) {
+        VkCommandBufferAllocateInfo cai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        cai.commandPool = pool_;
+        cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cai.commandBufferCount = 1;
+        vkAllocateCommandBuffers(device_, &cai, &s.cmd);
+        VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        vkCreateFence(device_, &fci, nullptr, &s.fence);
+        VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        vkCreateSemaphore(device_, &sci, nullptr, &s.acquired);
+    }
+    cmd_ = slot().cmd;
     return true;
 }
 
@@ -478,10 +499,20 @@ bool VulkanRenderer::create_swapchain() {
         vkCreateImageView(device_, &vci, nullptr, &view);
         swap_views_.push_back(view);
     }
+    // One "picture complete" semaphore per image: presentation of an image has finished with its
+    // semaphore by the time the image can be acquired again.
+    while (render_sems_.size() < swap_images_.size()) {
+        VkSemaphoreCreateInfo semci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkSemaphore sem = VK_NULL_HANDLE;
+        vkCreateSemaphore(device_, &semci, nullptr, &sem);
+        render_sems_.push_back(sem);
+    }
     return true;
 }
 
 void VulkanRenderer::destroy_swapchain() {
+    for (VkSemaphore sem : render_sems_) vkDestroySemaphore(device_, sem, nullptr);
+    render_sems_.clear();
     for (VkImageView view : swap_views_) vkDestroyImageView(device_, view, nullptr);
     swap_views_.clear();
     if (swapchain_) vkDestroySwapchainKHR(device_, swapchain_, nullptr);
@@ -614,10 +645,12 @@ bool VulkanRenderer::init(const RendererOptions& options, std::string* error) {
     }
 
     const VkImageUsageFlags transfer = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    bool ok = create_buffer(vertex_buf_, kVertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) &&
-              create_buffer(index_buf_, kIndexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT) &&
-              create_buffer(staging_, kStagingSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) &&
-              create_buffer(readback_, 1024 * 1024 * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT) &&
+    bool ok = true;
+    for (FrameSlot& s : slots_)
+        ok = ok && create_buffer(s.vertex, kVertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) &&
+             create_buffer(s.index, kIndexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT) &&
+             create_buffer(s.staging, kStagingSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    ok = ok && create_buffer(readback_, 1024 * 1024 * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT) &&
               create_image(white_, 1, 1, kColorFormat, VK_IMAGE_USAGE_SAMPLED_BIT | transfer, false) &&
               create_image(raw_display_, 512, kDisplayHeight, kColorFormat, VK_IMAGE_USAGE_SAMPLED_BIT | transfer, false) &&
               create_image(transfer_tmp_, 1024, 1024, kColorFormat, VK_IMAGE_USAGE_SAMPLED_BIT | transfer, false) &&
@@ -650,7 +683,7 @@ bool VulkanRenderer::init_overlay(VkFormat format) {
     info.Queue = queue_;
     info.DescriptorPoolSize = 256;
     info.MinImageCount = 2;
-    info.ImageCount = 2;
+    info.ImageCount = kFramesInFlight + 1; // the overlay's buffers rotate at least as often as frames
     info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     info.PipelineCache = pipeline_cache_;
     info.UseDynamicRendering = true;
@@ -695,14 +728,10 @@ void VulkanRenderer::shutdown() {
         return;
     }
     vkDeviceWaitIdle(device_);
+    for (auto& [handle, tex] : ui_textures_) slot().dead_ui.push_back(tex);
+    ui_textures_.clear();
+    for (FrameSlot& s : slots_) retire(s);
     if (overlay_ready_) {
-        for (auto& [handle, tex] : ui_textures_) ui_garbage_.push_back(tex);
-        ui_textures_.clear();
-        for (UiTexture& tex : ui_garbage_) {
-            ImGui_ImplVulkan_RemoveTexture(tex.set);
-            destroy_image(tex.image);
-        }
-        ui_garbage_.clear();
         ImGui_ImplVulkan_Shutdown();
         overlay_ready_ = false;
     }
@@ -716,8 +745,13 @@ void VulkanRenderer::shutdown() {
         destroy_image(fb.depth);
     }
     for (Image* img : {&white_, &raw_display_, &transfer_tmp_, &capture_}) destroy_image(*img);
-    for (Buffer* buf : {&vertex_buf_, &index_buf_, &staging_, &readback_})
-        if (buf->buffer) vmaDestroyBuffer(allocator_, buf->buffer, buf->alloc);
+    for (FrameSlot& s : slots_) {
+        for (Buffer* buf : {&s.vertex, &s.index, &s.staging})
+            if (buf->buffer) vmaDestroyBuffer(allocator_, buf->buffer, buf->alloc);
+        if (s.fence) vkDestroyFence(device_, s.fence, nullptr);
+        if (s.acquired) vkDestroySemaphore(device_, s.acquired, nullptr);
+    }
+    if (readback_.buffer) vmaDestroyBuffer(allocator_, readback_.buffer, readback_.alloc);
     for (VkSampler s : samplers_)
         if (s) vkDestroySampler(device_, s, nullptr);
     if (desc_pool_) vkDestroyDescriptorPool(device_, desc_pool_, nullptr);
@@ -726,9 +760,6 @@ void VulkanRenderer::shutdown() {
     if (vert_) vkDestroyShaderModule(device_, vert_, nullptr);
     if (frag_) vkDestroyShaderModule(device_, frag_, nullptr);
     destroy_swapchain();
-    if (acquire_sem_) vkDestroySemaphore(device_, acquire_sem_, nullptr);
-    if (render_sem_) vkDestroySemaphore(device_, render_sem_, nullptr);
-    if (fence_) vkDestroyFence(device_, fence_, nullptr);
     if (pool_) vkDestroyCommandPool(device_, pool_, nullptr);
     if (allocator_) vmaDestroyAllocator(allocator_);
     vkDestroyDevice(device_, nullptr);
@@ -757,17 +788,49 @@ void VulkanRenderer::end_pass() {
     bound_set_ = VK_NULL_HANDLE;
 }
 
-// Submits everything recorded so far and waits for it, which also frees the streaming buffers.
-void VulkanRenderer::flush() {
+// Ends the current slot's commands and hands them to the GPU.
+void VulkanRenderer::submit(VkSubmitInfo& si) {
     end_pass();
     vkEndCommandBuffer(cmd_);
-    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd_;
-    vkQueueSubmit(queue_, 1, &si, fence_);
-    vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
-    vkResetFences(device_, 1, &fence_);
-    vertex_buf_.used = index_buf_.used = staging_.used = 0;
+    vkQueueSubmit(queue_, 1, &si, slot().fence);
+    slot().pending = true;
+}
+
+// Waits until a slot's frame has finished, then releases what was waiting on it.
+void VulkanRenderer::retire(FrameSlot& s) {
+    if (s.pending) {
+        vkWaitForFences(device_, 1, &s.fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device_, 1, &s.fence);
+        s.pending = false;
+    }
+    for (Image& img : s.dead_images) destroy_image(img);
+    s.dead_images.clear();
+    if (!s.dead_sets.empty()) vkFreeDescriptorSets(device_, desc_pool_, u32(s.dead_sets.size()), s.dead_sets.data());
+    s.dead_sets.clear();
+    for (UiTexture& tex : s.dead_ui) {
+        ImGui_ImplVulkan_RemoveTexture(tex.set);
+        destroy_image(tex.image);
+    }
+    s.dead_ui.clear();
+    s.vertex.used = s.index.used = s.staging.used = 0;
+}
+
+// Moves recording on to the next slot once its previous frame is done.
+void VulkanRenderer::advance_slot() {
+    slot_index_ = (slot_index_ + 1) % kFramesInFlight;
+    retire(slot());
+    cmd_ = slot().cmd;
+    begin_commands();
+}
+
+// Submits everything recorded so far and waits until the GPU is idle: results can be read back
+// and any resource can be released afterwards.
+void VulkanRenderer::flush() {
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit(si);
+    for (FrameSlot& s : slots_) retire(s);
     begin_commands();
 }
 
@@ -858,16 +921,16 @@ Framebuffer* VulkanRenderer::find_framebuffer(u32 addr) {
 
 void VulkanRenderer::upload_rgba(Image& dst, const u32* pixels, u32 w, u32 h) {
     const VkDeviceSize bytes = VkDeviceSize(w) * h * 4;
-    if (staging_.used + bytes > staging_.size) flush();
+    if (slot().staging.used + bytes > slot().staging.size) flush();
     end_pass();
-    std::memcpy(staging_.mapped + staging_.used, pixels, bytes);
+    std::memcpy(slot().staging.mapped + slot().staging.used, pixels, bytes);
     transition(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy region{};
-    region.bufferOffset = staging_.used;
+    region.bufferOffset = slot().staging.used;
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {w, h, 1};
-    vkCmdCopyBufferToImage(cmd_, staging_.buffer, dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    staging_.used += align_up<VkDeviceSize>(bytes, 16);
+    vkCmdCopyBufferToImage(cmd_, slot().staging.buffer, dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    slot().staging.used += align_up<VkDeviceSize>(bytes, 16);
 }
 
 Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
@@ -1084,7 +1147,7 @@ VkPipeline VulkanRenderer::get_pipeline(const PipelineKey& key) {
 void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::Vertex* vertices, u32 vertex_count,
                           const u16* indices, u32 index_count) {
     const VkDeviceSize vbytes = VkDeviceSize(vertex_count) * sizeof(ge::Vertex), ibytes = VkDeviceSize(index_count) * 2;
-    if (vertex_buf_.used + vbytes > vertex_buf_.size || index_buf_.used + ibytes > index_buf_.size) flush();
+    if (slot().vertex.used + vbytes > slot().vertex.size || slot().index.used + ibytes > slot().index.size) flush();
 
     Framebuffer* fb = get_framebuffer(s.fb_addr, s.fb_stride, s.fb_format);
 
@@ -1224,14 +1287,14 @@ void VulkanRenderer::draw(const DrawState& s, ge::Topology topology, const ge::V
     vkCmdSetBlendConstants(cmd_, blend_constant);
     vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
-    std::memcpy(vertex_buf_.mapped + vertex_buf_.used, vertices, vbytes);
-    std::memcpy(index_buf_.mapped + index_buf_.used, indices, ibytes);
-    VkDeviceSize voffset = vertex_buf_.used;
-    vkCmdBindVertexBuffers(cmd_, 0, 1, &vertex_buf_.buffer, &voffset);
-    vkCmdBindIndexBuffer(cmd_, index_buf_.buffer, index_buf_.used, VK_INDEX_TYPE_UINT16);
+    std::memcpy(slot().vertex.mapped + slot().vertex.used, vertices, vbytes);
+    std::memcpy(slot().index.mapped + slot().index.used, indices, ibytes);
+    VkDeviceSize voffset = slot().vertex.used;
+    vkCmdBindVertexBuffers(cmd_, 0, 1, &slot().vertex.buffer, &voffset);
+    vkCmdBindIndexBuffer(cmd_, slot().index.buffer, slot().index.used, VK_INDEX_TYPE_UINT16);
     vkCmdDrawIndexed(cmd_, index_count, 1, 0, 0, 0);
-    vertex_buf_.used += align_up<VkDeviceSize>(vbytes, 8);
-    index_buf_.used += align_up<VkDeviceSize>(ibytes, 4);
+    slot().vertex.used += align_up<VkDeviceSize>(vbytes, 8);
+    slot().index.used += align_up<VkDeviceSize>(ibytes, 4);
 }
 
 void VulkanRenderer::blit(Image& src, VkOffset3D s0, VkOffset3D s1, Image& dst, VkOffset3D d0, VkOffset3D d1, VkFilter filter) {
@@ -1422,6 +1485,7 @@ void VulkanRenderer::set_vsync(bool on) {
     options_.vsync = on;
     if (swapchain_) {
         flush();
+        vkDeviceWaitIdle(device_); // presentation may still hold the old images
         create_swapchain();
     }
 }
@@ -1467,7 +1531,7 @@ u64 VulkanRenderer::create_ui_texture(const u32* rgba, u32 width, u32 height) {
 void VulkanRenderer::destroy_ui_texture(u64 handle) {
     auto it = ui_textures_.find(handle);
     if (it == ui_textures_.end()) return;
-    ui_garbage_.push_back(it->second);
+    slot().dead_ui.push_back(it->second);
     ui_textures_.erase(it);
 }
 
@@ -1478,55 +1542,52 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
     last_display_w_ = src_w;
     last_display_h_ = src_h;
 
-    bool presented = false;
+    bool recreate = false;
+    bool submitted = false;
     if (swapchain_ || (surface_ && create_swapchain())) {
         u32 index = 0;
-        VkResult acquired = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, acquire_sem_, VK_NULL_HANDLE, &index);
+        VkResult acquired = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, slot().acquired, VK_NULL_HANDLE, &index);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
-            flush();
-            create_swapchain();
+            recreate = true;
         } else if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
             compose(swap_images_[index], swap_views_[index], swap_extent_, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, source, src_w, src_h);
-
-            vkEndCommandBuffer(cmd_);
             const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
             VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
             si.waitSemaphoreCount = 1;
-            si.pWaitSemaphores = &acquire_sem_;
+            si.pWaitSemaphores = &slot().acquired;
             si.pWaitDstStageMask = &wait_stage;
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &cmd_;
             si.signalSemaphoreCount = 1;
-            si.pSignalSemaphores = &render_sem_;
-            vkQueueSubmit(queue_, 1, &si, fence_);
+            si.pSignalSemaphores = &render_sems_[index];
+            submit(si);
+            submitted = true;
             VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
             pi.waitSemaphoreCount = 1;
-            pi.pWaitSemaphores = &render_sem_;
+            pi.pWaitSemaphores = &render_sems_[index];
             pi.swapchainCount = 1;
             pi.pSwapchains = &swapchain_;
             pi.pImageIndices = &index;
             VkResult result = vkQueuePresentKHR(queue_, &pi);
-            vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
-            vkResetFences(device_, 1, &fence_);
-            vertex_buf_.used = index_buf_.used = staging_.used = 0;
-            begin_commands();
-            if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR) create_swapchain();
-            presented = true;
+            recreate = result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR;
         }
     } else if (offscreen_.image) {
         compose(offscreen_.image, offscreen_.view, {offscreen_.width, offscreen_.height}, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 source, src_w, src_h);
         offscreen_.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     }
-    if (!presented) flush();
-
-    // Housekeeping. Nothing is in flight here, so resources can be released.
-    for (UiTexture& tex : ui_garbage_) {
-        ImGui_ImplVulkan_RemoveTexture(tex.set);
-        destroy_image(tex.image);
+    if (!submitted) {
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit(si);
     }
-    ui_garbage_.clear();
-    // Drop textures that have not been used for a while.
+    // Record the next frame while the GPU works on this one.
+    advance_slot();
+    if (recreate) {
+        flush();
+        vkDeviceWaitIdle(device_); // presentation may still hold the old images
+        create_swapchain();
+    }
+
+    // Drop textures that have not been used for a while. A frame still in flight may refer to
+    // them, so they go with the current slot and are released when it next comes round.
     ++frame_;
     if ((frame_ & 63) == 0) {
         for (auto it = textures_.begin(); it != textures_.end();) {
@@ -1534,11 +1595,11 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
                 for (u32 s = 0; s < 16; ++s) {
                     auto d = descriptors_.find((u64(reinterpret_cast<uintptr_t>(it->second.image.view)) << 4) ^ s);
                     if (d != descriptors_.end()) {
-                        vkFreeDescriptorSets(device_, desc_pool_, 1, &d->second);
+                        slot().dead_sets.push_back(d->second);
                         descriptors_.erase(d);
                     }
                 }
-                destroy_image(it->second.image);
+                slot().dead_images.push_back(it->second.image);
                 it = textures_.erase(it);
             } else {
                 ++it;
