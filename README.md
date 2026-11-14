@@ -37,9 +37,10 @@ Disc images in ISO and CHD format are accepted.
   settings before playing, and an in-game settings menu (Esc); settings persist.
 - An optional quick start that skips the start-up notices, logos and opening movie and boots
   straight to the main menu.
-- Texture packs: the game's textures can be dumped, upscaled with your own tools and loaded back
-  in place of the originals ([docs/TEXTURE_PACKS.md](docs/TEXTURE_PACKS.md)). Packs are made from
-  the game's artwork, so none are included here.
+- Texture packs: the game's textures can be dumped, upscaled with the built-in upscaler (FFmpeg's
+  xBR, from a button in the settings) or your own tools, and loaded back in place of the originals
+  ([docs/TEXTURE_PACKS.md](docs/TEXTURE_PACKS.md)). Packs are made from the game's artwork, so none
+  are included here.
 - Save, load and message screens of its own in place of the console's, with save pictures and
   descriptions. Saves are plain files in a normal folder.
 - Keyboard (rebindable) and gamepad input, hot-pluggable.

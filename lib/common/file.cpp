@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <fstream>
 
+#include <windows.h>
+
 namespace p2 {
 
 bool read_file(const std::filesystem::path& path, std::vector<u8>& out) {
@@ -50,6 +52,27 @@ std::filesystem::path utf8_path(std::string_view text) {
 std::string path_utf8(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
     return std::string(text.begin(), text.end());
+}
+
+std::string to_utf8(const wchar_t* text) {
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string out(size_t(size - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+std::filesystem::path program_folder() {
+    std::wstring path(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD n = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
+        if (n < path.size()) {
+            path.resize(n);
+            break;
+        }
+        path.resize(path.size() * 2);
+    }
+    return std::filesystem::path(path).parent_path();
 }
 
 std::string format(const char* fmt, ...) {

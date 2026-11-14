@@ -243,10 +243,18 @@ size_t rescan() {
     forget_loaded();
     std::error_code ec;
     std::filesystem::create_directories(g_replace_dir, ec);
+    // Two files with the same name: one made by hand wins over the upscaler's (kUpscaledFolder).
+    const std::filesystem::path generated = g_replace_dir / kUpscaledFolder;
+    auto made_by_upscaler = [&](const std::filesystem::path& file) {
+        const std::filesystem::path relative = file.lexically_relative(generated);
+        return !relative.empty() && *relative.begin() != "..";
+    };
     for (auto it = std::filesystem::recursive_directory_iterator(g_replace_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator();
          it.increment(ec)) {
         u64 id;
-        if (it->is_regular_file(ec) && parse_id(it->path(), &id)) g_index[id] = it->path();
+        if (!it->is_regular_file(ec) || !parse_id(it->path(), &id)) continue;
+        auto [entry, added] = g_index.try_emplace(id, it->path());
+        if (!added && made_by_upscaler(entry->second) && !made_by_upscaler(it->path())) entry->second = it->path();
     }
     if (!g_index.empty()) LOG_INFO("textures", "%zu replacement texture(s) in %s", g_index.size(), g_replace_dir.string().c_str());
     return g_index.size();

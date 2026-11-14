@@ -74,6 +74,7 @@ add_executable(p2ep
     platform/config.cpp
     platform/frame.cpp
     platform/host.cpp
+    platform/upscale_job.cpp
     platform/window.cpp
     ui/launcher.cpp
     ui/overlay.cpp

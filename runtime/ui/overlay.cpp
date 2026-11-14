@@ -12,6 +12,8 @@
 #include "runtime/gfx/texture_pack.h"
 #include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/platform/config.h"
+#include "runtime/platform/host.h"
+#include "runtime/platform/upscale_job.h"
 #include "runtime/platform/window.h"
 #include "runtime/ui/ui_shared.h"
 
@@ -95,6 +97,28 @@ ImVec2 display_size() { return ImGui::GetIO().DisplaySize; }
 void changed() {
     apply_settings();
     host::save_settings();
+}
+
+// Reads textures/replace again and redraws every texture with what is there now. Returns the
+// number of replacement files.
+size_t reload_pack() {
+    const size_t count = gfx::textures::rescan();
+    if (g_renderer) {
+        g_renderer->reload_textures();
+        g_renderer->set_texture_pack_active(gfx::textures::dumping() || gfx::textures::replacing());
+    }
+    return count;
+}
+
+// When an upscaling run started from the settings has ended: use its textures and say what it did.
+void check_upscale() {
+    host::upscale::Result r;
+    if (!host::upscale::take_result(&r)) return;
+    if (r.upscaled) reload_pack();
+    if (!r.ok && r.upscaled == 0 && r.failed == 0) notify("Upscaling stopped before it finished.");
+    else if (r.upscaled == 0 && r.failed == 0) notify(r.up_to_date || r.kept ? "Every dumped texture is upscaled already." : "There are no dumped textures to upscale.");
+    else if (r.failed) notify(format("Upscaled %u texture(s); %u could not be done.", r.upscaled, r.failed));
+    else notify(format("Upscaled %u texture(s); they are in use now.", r.upscaled));
 }
 
 void release_icons() {
@@ -426,14 +450,7 @@ void video_tab() {
     ImGui::SeparatorText("Textures");
     if (ImGui::Checkbox("Use replacement textures", &s.replace_textures)) changed();
     ImGui::SameLine();
-    if (ImGui::SmallButton("Reload")) {
-        const size_t count = gfx::textures::rescan();
-        if (g_renderer) {
-            g_renderer->reload_textures();
-            g_renderer->set_texture_pack_active(gfx::textures::dumping() || gfx::textures::replacing());
-        }
-        notify(format("%zu replacement texture(s) found.", count));
-    }
+    if (ImGui::SmallButton("Reload")) notify(format("%zu replacement texture(s) found.", reload_pack()));
     ImGui::Indent();
     const size_t replacements = gfx::textures::replacement_count();
     if (replacements) ImGui::TextDisabled("%zu replacement texture(s) in textures\\replace.", replacements);
@@ -455,6 +472,31 @@ void video_tab() {
         ImGui::TextDisabled("%llu written so far.", static_cast<unsigned long long>(gfx::textures::dumped_count()));
     ImGui::PopTextWrapPos();
     ImGui::Unindent();
+
+    // The dumps made into a pack by p2texup.exe, in the background; the pack reloads when it is done.
+    const bool tool = host::upscale::available(), busy = host::upscale::running();
+    ImGui::BeginDisabled(!tool || busy);
+    if (ImGui::Button("Upscale dumped textures")) {
+        std::string error;
+        if (!host::upscale::start(host::options().user_dir, &error)) notify(error);
+    }
+    ImGui::EndDisabled();
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    if (busy) {
+        const host::upscale::Progress p = host::upscale::progress();
+        if (p.total) ImGui::TextDisabled("Upscaling: %u of %u...", p.done, p.total);
+        else ImGui::TextDisabled("Upscaling: looking for textures to do...");
+    } else if (!tool) {
+        ImGui::TextDisabled("Needs p2texup.exe next to the program.");
+    } else {
+        ImGui::TextDisabled("Makes 4x versions of the dumped textures in textures\\replace\\upscaled, in the background, "
+                            "and uses them. Textures done before are skipped, and so are those with a replacement "
+                            "of your own.");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+
     if (ImGui::Button("Open the textures folder")) {
         std::error_code ec;
         const std::filesystem::path folder = gfx::textures::dump_folder().parent_path();
@@ -563,6 +605,7 @@ void draw_menu() {
 }
 
 void build() {
+    check_upscale();
     ImGuiIO& io = ImGui::GetIO();
     if (g_window) {
         ImGui_ImplSDL3_NewFrame();

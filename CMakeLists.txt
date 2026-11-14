@@ -37,6 +37,7 @@ target_include_directories(p2ep_options INTERFACE "${CMAKE_SOURCE_DIR}")
 add_subdirectory(lib)
 add_subdirectory(tools/recomp)
 add_subdirectory(tools/icon)
+add_subdirectory(tools/texup)
 
 if(P2EP_BUILD_TESTS)
     enable_testing()

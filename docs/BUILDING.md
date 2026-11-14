@@ -78,7 +78,7 @@ Fetched and built automatically, at versions pinned by `vcpkg-configuration.json
 | Library | Use | Licence |
 |---|---|---|
 | SDL 3 | Window, input, audio device | zlib |
-| FFmpeg (libavcodec, libswscale, libswresample) | H.264 and ATRAC decoding | LGPL 2.1 or later |
+| FFmpeg (libavcodec, libavfilter, libswscale, libswresample) | H.264 and ATRAC decoding; the texture upscaler's xBR scaling and sharpening | LGPL 2.1 or later |
 | Vulkan Headers, volk, Vulkan Memory Allocator | Rendering | Apache 2.0 / MIT |
 | glslang | Shader compilation at build time | BSD-3-Clause and others |
 | Dear ImGui | Settings menu and system dialogs | MIT |

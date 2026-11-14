@@ -14,6 +14,7 @@
 #include "runtime/platform/config.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
+#include "runtime/platform/upscale_job.h"
 #include "runtime/platform/window.h"
 #include "runtime/ui/launcher.h"
 #include "runtime/ui/overlay.h"
@@ -63,28 +64,6 @@ void show_message(const std::string& text) {
 void report_error(const std::string& text) {
     std::fprintf(stderr, "error: %s\n", text.c_str());
     show_message(text);
-}
-
-std::string to_utf8(const wchar_t* text) {
-    const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 1) return {};
-    std::string out(size_t(size - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
-    return out;
-}
-
-// The folder holding this program.
-std::filesystem::path program_folder() {
-    std::wstring path(MAX_PATH, L'\0');
-    for (;;) {
-        const DWORD n = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
-        if (n < path.size()) {
-            path.resize(n);
-            break;
-        }
-        path.resize(path.size() * 2);
-    }
-    return std::filesystem::path(path).parent_path();
 }
 
 int usage(const std::string& problem = {}) {
@@ -350,6 +329,7 @@ int wmain(int argc, wchar_t** wargv) {
         ui::attach(g_renderer.get());
     }
     auto shut_down = [] {
+        host::upscale::stop(); // an upscaling run started from the settings
         host::set_renderer(nullptr);
         g_renderer.reset();
         gfx::textures::shutdown();

@@ -18,6 +18,10 @@
 // replacement is shown from the first frame after it has finished loading.
 namespace p2::gfx::textures {
 
+// The subfolder of textures/replace that the texture upscaler (tools/texup) writes to. A file
+// anywhere else in textures/replace wins over one there with the same name.
+constexpr const char* kUpscaledFolder = "upscaled";
+
 struct Image {
     u32 width = 0, height = 0;
     std::vector<u32> rgba; // R in the low byte, rows top to bottom

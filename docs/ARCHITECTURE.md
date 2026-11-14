@@ -23,6 +23,7 @@ part of this repository.
 | `lib/allegrex` | Instruction decoder and disassembler for the CPU, FPU and VFPU |
 | `tools/recomp` | `p2recomp`: analysis and C++ generation |
 | `tools/icon` | Build-time conversion of an image to the program's Windows icon |
+| `tools/texup` | `p2texup`: upscales dumped textures into a texture pack (FFmpeg xBR) |
 | `runtime/cpu` | Guest CPU state, instruction semantics, services called by generated code |
 | `runtime/mem` | The guest address space |
 | `runtime/kernel` | Threads, scheduler, virtual clock, memory partitions, interrupts |

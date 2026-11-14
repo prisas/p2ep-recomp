@@ -6,8 +6,9 @@ add_executable(p2_tests
     test_cpu_ops.cpp
     test_disc.cpp
     test_psp.cpp
+    test_texup.cpp
     "${CMAKE_SOURCE_DIR}/runtime/audio/reverb.cpp")
-target_link_libraries(p2_tests PRIVATE p2_common p2_disc p2_psp p2_allegrex)
+target_link_libraries(p2_tests PRIVATE p2_common p2_disc p2_psp p2_allegrex p2_texup)
 
 add_test(NAME unit COMMAND p2_tests)
 
