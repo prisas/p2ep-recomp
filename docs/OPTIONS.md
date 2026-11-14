@@ -68,7 +68,7 @@ tabs are General, Video, Audio, Controls and Help; the launcher shows the same o
 | Use replacement textures | On by default. Draw with the files of a texture pack in `textures\replace` wherever there is one; *Reload* reads the folder again. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
 | Dump textures | Off by default. Write each texture the game draws with to `textures\dump`, once, as PNG: the starting point for a texture pack. |
 | Volume | Output volume. |
-| Reverb on sound effects | The echo the game puts on its sound effects in some places. The program's reverb approximates the console's; switch it off for a dry sound. |
+| Reverb on sound effects | Off by default. When on, the echo the game puts on its sound effects in some places is added, with the program's approximation of the console's reverb. |
 | Fast-forward speed | How fast the game runs while fast-forward is held: unlimited, or 2x to 8x. |
 | Keys | The keyboard key for each console button. |
 
