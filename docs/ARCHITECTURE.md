@@ -29,6 +29,7 @@ part of this repository.
 | `runtime/hle` | System-call implementations, one file per console library |
 | `runtime/ge` | Display-list processor: vertex decoding, transform and lighting, textures |
 | `runtime/gfx/vk` | Vulkan renderer and shaders |
+| `runtime/gfx` | Texture dumping and replacement (texture packs) |
 | `runtime/audio`, `runtime/media` | Audio device output; ATRAC and H.264 decoding |
 | `runtime/platform` | Window, input, settings, frame pacing, dumps |
 | `runtime/ui` | Overlay: settings menu, system dialogs, performance display |
@@ -120,6 +121,13 @@ as its pixels cannot have changed. The game may rewrite a texture between any tw
 pixels are compared again (by a vectorised hash) whenever the game has touched the texture state
 *and* its code has run since the last comparison. Display lists run to completion when they are
 submitted, so no game code runs between the draws of one submission and they share a comparison.
+
+**Texture packs.** When a texture is decoded, its ID (a hash of the decoded pixels and size, the
+same on every machine; `runtime/gfx/texture_id.h`) is looked up in the replacement folder, and a
+file found there is uploaded instead, at its own resolution. Files are read and dumps written on a
+background thread, so neither stalls the game. Textures are dumped only once their pixels have
+stayed the same for several frames, and the movie player's picture buffers are excluded, which
+keeps animated surfaces out of the dump.
 
 **Skipping the intro.** The game lets the player skip each start-up screen with Start and shows
 its main menu by itself once the opening movie is gone. With the setting on, the program presses

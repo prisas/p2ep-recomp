@@ -42,6 +42,8 @@ tabs are General, Video, Audio, Controls and Help.
 | Full screen | Borderless full screen on the current display. |
 | Vertical sync | Present in step with the display. Off removes the display's latency at the cost of tearing. |
 | Show performance | A small display of frame rate, speed, frame time and rendering resolution. |
+| Use replacement textures | On by default. Draw with the files of a texture pack in `textures\replace` wherever there is one; *Reload* reads the folder again. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
+| Dump textures | Off by default. Write each texture the game draws with to `textures\dump`, once, as PNG: the starting point for a texture pack. |
 | Volume | Output volume. |
 | Reverb on sound effects | The echo the game puts on its sound effects in some places. The program's reverb approximates the console's; switch it off for a dry sound. |
 | Fast-forward speed | How fast the game runs while fast-forward is held: unlimited, or 2x to 8x. |
@@ -75,6 +77,7 @@ The user folder holds:
 |---|---|
 | `ms0\PSP\SAVEDATA\` | Saves, one folder per slot, as plain files with a description and picture. |
 | `settings.ini` | Settings. |
+| `textures\dump\`, `textures\replace\` | Dumped textures and your texture pack (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)). |
 | `cache\pipelines.bin` | The graphics driver's compiled render states, so later runs start without hitches. Safe to delete. |
 
 ## Options for testing and debugging
@@ -88,7 +91,7 @@ The user folder holds:
 | `--dump-frames <dir>` | Write displayed frames to `dir` as PNG files. |
 | `--dump-every <n>` | With `--dump-frames`: write every `n`th frame (default 60). |
 | `--dump-from <frame>` | With `--dump-frames`: start writing at this frame. |
-| `--dump-textures <dir>` | Write every texture the game uses as a PNG file (colour on the left, alpha on the right). |
+| `--dump-textures` | Dump textures this time, whatever the setting says (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)). |
 | `--dump-audio <file>` | Record the game's audio output to a WAV file. |
 | `--input <script>` | Scripted controller input: `frame:buttons` pairs separated by commas, buttons as the console's hexadecimal bit mask. From each listed frame on, the pad holds that state. `--input @file` reads the script from a file. |
 | `--no-gpu` | Do not create a renderer; only useful for testing system calls. |

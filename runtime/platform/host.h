@@ -17,7 +17,6 @@ struct Options {
     std::filesystem::path dump_dir; // write displayed frames here as PNG
     u32 dump_every = 0;             // every Nth frame (0: never) ...
     u64 dump_from = 0;              // ... starting at this frame
-    std::filesystem::path texture_dump_dir; // write every decoded texture here as PNG (debugging)
     u64 trace_frame = ~0ull;        // log every draw of this frame (debugging)
     std::string late_channels;      // log channels switched on when `late_from` frames have been shown
     u64 late_from = 0;

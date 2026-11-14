@@ -9,6 +9,7 @@
 #include "lib/common/file.h"
 #include "lib/common/log.h"
 #include "runtime/audio/audio_out.h"
+#include "runtime/gfx/texture_pack.h"
 #include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/platform/config.h"
 #include "runtime/platform/window.h"
@@ -27,6 +28,9 @@
 
 #include <algorithm>
 #include <cmath>
+
+#include <windows.h>
+#include <shellapi.h>
 
 namespace p2::ui {
 
@@ -370,6 +374,45 @@ void video_tab() {
     if (ImGui::Checkbox("Full screen", &s.fullscreen)) changed();
     if (ImGui::Checkbox("Vertical sync", &s.vsync)) changed();
     if (ImGui::Checkbox("Show performance", &s.show_fps)) changed();
+
+    ImGui::SeparatorText("Textures");
+    if (ImGui::Checkbox("Use replacement textures", &s.replace_textures)) changed();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reload")) {
+        const size_t count = gfx::textures::rescan();
+        if (g_renderer) {
+            g_renderer->reload_textures();
+            g_renderer->set_texture_pack_active(gfx::textures::dumping() || gfx::textures::replacing());
+        }
+        notify(format("%zu replacement texture(s) found.", count));
+    }
+    ImGui::Indent();
+    const size_t replacements = gfx::textures::replacement_count();
+    if (replacements) ImGui::TextDisabled("%zu replacement texture(s) in textures\\replace.", replacements);
+    else ImGui::TextDisabled("No texture pack: put one in textures\\replace in the user folder.");
+    ImGui::Unindent();
+
+    bool dump = s.dump_textures || s.run_dump_textures;
+    ImGui::BeginDisabled(s.run_dump_textures);
+    if (ImGui::Checkbox("Dump textures", &dump)) {
+        s.dump_textures = dump;
+        changed();
+    }
+    ImGui::EndDisabled();
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Writes each texture the game draws to textures\\dump in the user folder, once, as PNG: the "
+                        "starting point for a texture pack.");
+    if (gfx::textures::dumping())
+        ImGui::TextDisabled("%llu written so far.", static_cast<unsigned long long>(gfx::textures::dumped_count()));
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+    if (ImGui::Button("Open the textures folder")) {
+        std::error_code ec;
+        const std::filesystem::path folder = gfx::textures::dump_folder().parent_path();
+        std::filesystem::create_directories(folder, ec);
+        ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
 }
 
 void audio_tab() {
@@ -549,6 +592,14 @@ void apply_settings() {
     audio::output_set_volume(f32(s.volume) / 100.0f);
     host::set_fullscreen(s.fullscreen);
     if (!g_renderer) return;
+
+    // Texture packs: switching replacement on or off redraws every texture from scratch.
+    const bool was_replacing = gfx::textures::replacing();
+    gfx::textures::set_replacing(s.replace_textures);
+    gfx::textures::set_dumping(s.dump_textures || s.run_dump_textures);
+    if (gfx::textures::replacing() != was_replacing) g_renderer->reload_textures();
+    g_renderer->set_texture_pack_active(gfx::textures::dumping() || gfx::textures::replacing());
+
     g_renderer->set_vsync(s.vsync && !s.run_unthrottled);
     g_renderer->set_fit(gfx::Fit(u32(s.scaling)), s.smooth);
     u32 scale = s.run_scale ? s.run_scale : s.scale;

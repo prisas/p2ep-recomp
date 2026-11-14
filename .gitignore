@@ -16,6 +16,9 @@ compile_commands.json
 # Local runs
 /frames/
 /userdata/
+/textures/
+*.png
+!docs/**/*.png
 *.log
 *.pdb
 *.ilk

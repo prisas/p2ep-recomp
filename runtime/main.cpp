@@ -6,6 +6,7 @@
 #include "runtime/cpu/recomp.h"
 #include "runtime/cpu/rt.h"
 #include "runtime/ge/ge.h"
+#include "runtime/gfx/texture_pack.h"
 #include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/hle/hle_display.h"
 #include "runtime/kernel/kernel.h"
@@ -46,7 +47,7 @@ int usage() {
               "  --frames <n>          quit after n displayed frames\n"
               "  --dump-frames <dir>   write displayed frames as PNG files\n"
               "  --dump-every <n>      ... every nth frame (default 60)\n"
-              "  --dump-textures <dir> write every decoded texture as a PNG file\n"
+              "  --dump-textures       dump textures this time (to <user dir>/textures/dump), whatever the setting\n"
               "  --dump-audio <file>   record the game's audio output to a WAV file\n"
               "  --input <script>      scripted pad input: frame:hexbuttons,frame:hexbuttons,... (or @file)\n"
               "  --no-gpu              do not create a renderer (system-call testing only)\n"
@@ -153,7 +154,7 @@ int main(int argc, char** argv) {
     opt.user_dir = "userdata";
     opt.dump_every = 60;
     std::string channels, log_file, audio_dump;
-    bool no_gpu = false, fullscreen = false, skip_intro = false;
+    bool no_gpu = false, fullscreen = false, skip_intro = false, dump_textures = false;
     u32 scale = 0; // 0: use the saved setting
 
     for (int i = 1; i < argc; ++i) {
@@ -176,7 +177,7 @@ int main(int argc, char** argv) {
         else if (a == "--dump-frames") opt.dump_dir = value();
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));
         else if (a == "--dump-from") opt.dump_from = std::strtoull(value().c_str(), nullptr, 10);
-        else if (a == "--dump-textures") opt.texture_dump_dir = value();
+        else if (a == "--dump-textures") dump_textures = true;
         else if (a == "--dump-audio") audio_dump = value();
         else if (a == "--trace-frame") opt.trace_frame = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--log-from") opt.late_from = std::strtoull(value().c_str(), nullptr, 10);
@@ -227,6 +228,8 @@ int main(int argc, char** argv) {
     host::Settings& settings = host::settings();
     settings.run_scale = std::min<u32>(scale, 10);
     settings.run_skip_intro = skip_intro;
+    settings.run_dump_textures = dump_textures;
+    gfx::textures::init(opt.user_dir);
     settings.run_unthrottled = opt.unthrottled;
     if (fullscreen) settings.fullscreen = true;
 
@@ -284,6 +287,7 @@ int main(int argc, char** argv) {
              static_cast<unsigned long long>(gs.vertices));
     host::set_renderer(nullptr);
     g_renderer.reset();
+    gfx::textures::shutdown();
     ui::shutdown();
     audio::output_shutdown();
     host::window_shutdown();

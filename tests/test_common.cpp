@@ -1,5 +1,6 @@
 #include "lib/common/file.h"
 #include "lib/common/hash.h"
+#include "runtime/gfx/texture_id.h"
 #include "tests/test.h"
 
 #include <algorithm>
@@ -106,3 +107,15 @@ TEST(hash_bytes_detects_changes_avx2) {
 }
 
 TEST(hash_bytes_dispatch) { check_change_detection(hash_bytes); }
+
+// Texture IDs name the files of texture packs: if this value changes, every existing pack stops
+// matching. Never update the expected value; fix the change that broke it instead.
+TEST(texture_id_is_frozen) {
+    std::vector<u32> pixels(64 * 32);
+    for (u32 i = 0; i < pixels.size(); ++i) pixels[i] = i * 0x01010101u ^ 0xA5C30F96u;
+    CHECK_EQ(gfx::textures::texture_id(pixels.data(), 64, 32), u64(0xB0E5BE741C07EC11ull));
+    // The size takes part: the same bytes read as another shape are another texture.
+    CHECK(gfx::textures::texture_id(pixels.data(), 32, 64) != gfx::textures::texture_id(pixels.data(), 64, 32));
+    // Scalar and wide hashes of the pixels differ on purpose; the ID always uses the scalar one.
+    CHECK_EQ(hash_bytes_scalar(pixels.data(), 16), hash_bytes_scalar(pixels.data(), 16));
+}

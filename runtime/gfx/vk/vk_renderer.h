@@ -34,6 +34,10 @@ public:
     // While hidden, frames are rendered and finished as usual but not shown; the window keeps its
     // last picture and presentation never waits for the display.
     virtual void set_output_visible(bool visible) = 0;
+    // Drops every cached texture, so each is decoded again (and a texture pack looked up again).
+    virtual void reload_textures() = 0;
+    // Whether textures in use need texture-pack work (dumping or replacing).
+    virtual void set_texture_pack_active(bool active) = 0;
 
     // Size of the final picture (window or off-screen image) in pixels; zero when there is none.
     virtual void output_size(u32& width, u32& height) const = 0;

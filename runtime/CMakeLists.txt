@@ -54,6 +54,7 @@ add_executable(p2ep
     cpu/rt.cpp
     ge/ge.cpp
     ge/ge_texture.cpp
+    gfx/texture_pack.cpp
     gfx/vk/vk_renderer.cpp
     hle/hle_atrac.cpp
     hle/hle_audio.cpp

@@ -5,6 +5,7 @@
 // pack is demultiplexed on arrival into a host-side H.264 decoder and an ATRAC3plus frame queue,
 // so the ring buffer in guest memory is only a hand-over area.
 
+#include "runtime/gfx/texture_pack.h"
 #include "runtime/hle/hle.h"
 #include "runtime/media/codec.h"
 
@@ -336,6 +337,7 @@ HLE(sceMpegAvcCsc) {
     const u32 start = dest + (y * frame_width + x) * 4;
     if (!mem::valid(start, ((h - 1) * frame_width + w) * 4)) RET(kErrIllegalAddr);
     if (mv.video.has_frame()) mv.video.convert_rgba(mem::ptr(start), frame_width * 4, w, h);
+    gfx::textures::exclude_range(dest, start + ((h - 1) * frame_width + w) * 4); // never part of a texture pack
     RET(0);
 }
 

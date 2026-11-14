@@ -11,6 +11,7 @@
 #include "lib/common/hash.h"
 #include "lib/common/log.h"
 #include "runtime/ge/ge.h"
+#include "runtime/gfx/texture_pack.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
 #include "runtime/mem/memory.h"
@@ -116,6 +117,10 @@ struct Framebuffer {
 struct Texture {
     Image image;
     u64 content_hash = 0;
+    u64 decoded_frame = 0;   // when the current pixels were decoded
+    u64 pending_id = 0;      // a replacement that is still loading (0: none)
+    bool replaced = false;   // the image holds a replacement from a texture pack
+    bool dump_done = false;  // the current pixels were dumped, or will not be
     u64 checked_frame = ~0ull;
     u64 checked_epoch = ~0ull; // the memory epoch (see TextureDesc) at the last comparison
     u64 used_frame = 0;
@@ -179,6 +184,8 @@ public:
         smooth_ = smooth;
     }
     void set_output_visible(bool visible) override { output_visible_ = visible; }
+    void reload_textures() override;
+    void set_texture_pack_active(bool active) override { texture_pack_active_ = active; }
     void output_size(u32& width, u32& height) const override;
     void set_overlay_builder(std::function<void()> build) override { overlay_builder_ = std::move(build); }
     bool capture_output(std::vector<u8>& rgba, u32& width, u32& height) override;
@@ -232,6 +239,10 @@ private:
     void upload_rgba(Image& dst, const u32* pixels, u32 w, u32 h);
     Image* display_image(const ge::DisplayTarget& target, u32* src_w, u32* src_h);
     void blit(Image& src, VkOffset3D s0, VkOffset3D s1, Image& dst, VkOffset3D d0, VkOffset3D d1, VkFilter filter);
+    void retire_texture_image(Image& image);
+    bool fill_texture(Texture& tex, const u32* rgba, u32 w, u32 h);
+    void texture_pack_work(Texture& tex, const TextureDesc& desc, const u8* clut);
+    bool texture_pack_active_ = false; // dumping or replacing: textures need per-use checks
     void compose(VkImage image, VkImageView view, VkExtent2D extent, VkImageLayout final_layout, Image* source, u32 src_w,
                  u32 src_h);
     bool init_overlay(VkFormat format);
@@ -930,16 +941,81 @@ Framebuffer* VulkanRenderer::find_framebuffer(u32 addr) {
 
 void VulkanRenderer::upload_rgba(Image& dst, const u32* pixels, u32 w, u32 h) {
     const VkDeviceSize bytes = VkDeviceSize(w) * h * 4;
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {w, h, 1};
+    if (bytes > slot().staging.size) {
+        // Larger than the streaming buffer (a big replacement texture): a buffer of its own, used
+        // once and released after the copy has run.
+        Buffer once;
+        if (!create_buffer(once, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) return;
+        end_pass();
+        std::memcpy(once.mapped, pixels, bytes);
+        transition(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdCopyBufferToImage(cmd_, once.buffer, dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        flush();
+        vmaDestroyBuffer(allocator_, once.buffer, once.alloc);
+        return;
+    }
     if (slot().staging.used + bytes > slot().staging.size) flush();
     end_pass();
     std::memcpy(slot().staging.mapped + slot().staging.used, pixels, bytes);
     transition(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    VkBufferImageCopy region{};
     region.bufferOffset = slot().staging.used;
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {w, h, 1};
     vkCmdCopyBufferToImage(cmd_, slot().staging.buffer, dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     slot().staging.used += align_up<VkDeviceSize>(bytes, 16);
+}
+
+// Releases a texture's image once no frame in flight can use it, with its descriptor sets.
+void VulkanRenderer::retire_texture_image(Image& image) {
+    for (u32 s = 0; s < 16; ++s) {
+        auto d = descriptors_.find((u64(reinterpret_cast<uintptr_t>(image.view)) << 4) ^ s);
+        if (d != descriptors_.end()) {
+            slot().dead_sets.push_back(d->second);
+            descriptors_.erase(d);
+        }
+    }
+    slot().dead_images.push_back(image);
+    image = Image{};
+}
+
+// Puts pixels into a texture's image, making the image the right size first.
+bool VulkanRenderer::fill_texture(Texture& tex, const u32* rgba, u32 w, u32 h) {
+    if (tex.image.image && (tex.image.width != w || tex.image.height != h)) retire_texture_image(tex.image);
+    if (!tex.image.image &&
+        !create_image(tex.image, w, h, kColorFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
+        return false;
+    upload_rgba(tex.image, rgba, w, h);
+    return true;
+}
+
+// Texture-pack work for a texture about to be drawn: a replacement that has finished loading is
+// swapped in, and pixels that have stayed the same for a while are dumped.
+void VulkanRenderer::texture_pack_work(Texture& tex, const TextureDesc& desc, const u8* clut) {
+    if (tex.pending_id) {
+        bool pending = false;
+        if (auto image = textures::replacement(tex.pending_id, &pending)) {
+            if (fill_texture(tex, image->rgba.data(), image->width, image->height)) tex.replaced = true;
+            tex.pending_id = 0;
+        } else if (!pending) {
+            tex.pending_id = 0; // the file could not be used: keep the original
+        }
+    }
+    // Only pixels that stay put are dumped: movies and other animated surfaces would otherwise fill
+    // the folder with one file per frame.
+    constexpr u64 kSettledFrames = 6;
+    if (!tex.dump_done && textures::dumping() && frame_ - tex.decoded_frame >= kSettledFrames) {
+        tex.dump_done = true;
+        if (!textures::excluded(desc.addr) && ge::decode_texture(desc, clut, decode_scratch_))
+            textures::dump(textures::texture_id(decode_scratch_.data(), desc.width, desc.height), decode_scratch_.data(),
+                           desc.width, desc.height);
+    }
+}
+
+void VulkanRenderer::reload_textures() {
+    flush();
+    for (auto& [key, tex] : textures_) retire_texture_image(tex.image);
+    textures_.clear();
 }
 
 Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
@@ -953,6 +1029,7 @@ Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
     if (it != textures_.end() && it->second.checked_frame == frame_ &&
         (!desc.revalidate || it->second.checked_epoch == desc.memory_epoch)) {
         it->second.used_frame = frame_;
+        if (texture_pack_active_) texture_pack_work(it->second, desc, clut);
         return &it->second;
     }
 
@@ -962,44 +1039,43 @@ Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
     if (it != textures_.end() && it->second.content_hash == hash) {
         it->second.checked_frame = it->second.used_frame = frame_;
         it->second.checked_epoch = desc.memory_epoch;
+        if (texture_pack_active_) texture_pack_work(it->second, desc, clut);
         return &it->second;
     }
 
     if (!ge::decode_texture(desc, clut, decode_scratch_)) return nullptr;
-    if (!host::options().texture_dump_dir.empty()) {
-        std::error_code ec;
-        std::filesystem::create_directories(host::options().texture_dump_dir, ec);
-        std::vector<u32> opaque = decode_scratch_; // show colour and alpha side by side
-        opaque.resize(decode_scratch_.size() * 2);
-        std::vector<u32> sheet(size_t(desc.width) * 2 * desc.height);
-        for (u32 y = 0; y < desc.height; ++y) {
-            for (u32 x = 0; x < desc.width; ++x) {
-                u32 p = decode_scratch_[size_t(y) * desc.width + x], a = p >> 24;
-                sheet[size_t(y) * desc.width * 2 + x] = p | 0xFF000000u;
-                sheet[size_t(y) * desc.width * 2 + desc.width + x] = a | (a << 8) | (a << 16) | 0xFF000000u;
-            }
+    Texture& tex = it != textures_.end() ? it->second : textures_[key];
+    tex.replaced = false;
+    tex.pending_id = 0;
+    tex.dump_done = false;
+    tex.decoded_frame = frame_;
+    // With a texture pack, these pixels may have a replacement: shown at once if it is in memory,
+    // otherwise as soon as it has loaded.
+    const u32* pixels = decode_scratch_.data();
+    u32 width = desc.width, height = desc.height;
+    std::shared_ptr<const textures::Image> replacement;
+    if (textures::replacing() && !textures::excluded(desc.addr)) {
+        const u64 id = textures::texture_id(decode_scratch_.data(), desc.width, desc.height);
+        bool pending = false;
+        replacement = textures::replacement(id, &pending);
+        if (replacement) {
+            pixels = replacement->rgba.data();
+            width = replacement->width;
+            height = replacement->height;
+            tex.replaced = true;
+        } else if (pending) {
+            tex.pending_id = id;
         }
-        std::string name = format("%06llu_%08x_f%u%s_%ux%u_bw%u_%016llx.png", static_cast<unsigned long long>(frame_), desc.addr,
-                                  desc.format, desc.swizzled ? "s" : "", desc.width, desc.height, desc.buf_width,
-                                  static_cast<unsigned long long>(hash));
-        host::write_png((host::options().texture_dump_dir / name).string(), desc.width * 2, desc.height, sheet.data());
     }
-    Texture* tex;
-    if (it != textures_.end()) {
-        tex = &it->second;
-    } else {
-        Texture fresh;
-        if (!create_image(fresh.image, desc.width, desc.height, kColorFormat,
-                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
-            return nullptr;
-        tex = &(textures_[key] = fresh);
+    if (!fill_texture(tex, pixels, width, height)) {
+        textures_.erase(key);
+        return nullptr;
     }
-    upload_rgba(tex->image, decode_scratch_.data(), desc.width, desc.height);
-    tex->content_hash = hash;
-    tex->bytes = bytes;
-    tex->checked_frame = tex->used_frame = frame_;
-    tex->checked_epoch = desc.memory_epoch;
-    return tex;
+    tex.content_hash = hash;
+    tex.bytes = bytes;
+    tex.checked_frame = tex.used_frame = frame_;
+    tex.checked_epoch = desc.memory_epoch;
+    return &tex;
 }
 
 VkDescriptorSet VulkanRenderer::get_descriptor(VkImageView view, u32 sampler) {
@@ -1162,6 +1238,7 @@ void VulkanRenderer::draw(const DrawState& s, const ge::Vertex* vertices, u32 ve
     VkImageView view = white_.view;
     f32 uv_scale[2] = {1.0f, 1.0f};
     bool textured = s.texture;
+    bool smooth_texture = false;
     if (textured) {
         if (Framebuffer* source = find_framebuffer(s.tex.addr)) {
             if (source == fb) {
@@ -1184,6 +1261,7 @@ void VulkanRenderer::draw(const DrawState& s, const ge::Vertex* vertices, u32 ve
                 transition(tex->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
             view = tex->image.view;
+            smooth_texture = tex->replaced; // high-resolution artwork is filtered, whatever the game asks
         } else {
             textured = false;
         }
@@ -1283,6 +1361,7 @@ void VulkanRenderer::draw(const DrawState& s, const ge::Vertex* vertices, u32 ve
 
     VkPipeline pipeline = get_pipeline(key);
     u32 sampler = (s.tex.linear_min ? 1u : 0u) | (s.tex.linear_mag ? 2u : 0u) | (s.tex.clamp_s ? 4u : 0u) | (s.tex.clamp_t ? 8u : 0u);
+    if (smooth_texture) sampler |= 1u | 2u;
     if (view == white_.view) sampler = 0;
     VkDescriptorSet set = get_descriptor(view, sampler); // may flush, so it comes before the pass begins
 
@@ -1607,14 +1686,7 @@ void VulkanRenderer::present(const ge::DisplayTarget& target) {
     if ((frame_ & 63) == 0) {
         for (auto it = textures_.begin(); it != textures_.end();) {
             if (frame_ - it->second.used_frame > kTextureLifetimeFrames) {
-                for (u32 s = 0; s < 16; ++s) {
-                    auto d = descriptors_.find((u64(reinterpret_cast<uintptr_t>(it->second.image.view)) << 4) ^ s);
-                    if (d != descriptors_.end()) {
-                        slot().dead_sets.push_back(d->second);
-                        descriptors_.erase(d);
-                    }
-                }
-                slot().dead_images.push_back(it->second.image);
+                retire_texture_image(it->second.image);
                 it = textures_.erase(it);
             } else {
                 ++it;

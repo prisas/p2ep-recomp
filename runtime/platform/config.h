@@ -25,6 +25,8 @@ struct Settings {
     Scaling scaling = Scaling::Fit;
     bool smooth = true;         // bilinear filtering when the picture is scaled to the window
     bool show_fps = false;
+    bool replace_textures = true; // draw with a texture pack's files where there are any
+    bool dump_textures = false;   // write each texture the game uses to the dump folder
 
     // audio
     u32 volume = 100;           // percent
@@ -38,6 +40,7 @@ struct Settings {
     u32 run_scale = 0;          // overrides `scale` when not zero
     bool run_unthrottled = false; // no waiting for the display
     bool run_skip_intro = false;  // skip the intro this time, whatever `skip_intro` says
+    bool run_dump_textures = false; // dump textures this time, whatever `dump_textures` says
 
     Settings();
     void reset_keys();
