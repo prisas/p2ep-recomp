@@ -54,7 +54,7 @@ routine the recompiler did not find; [BUILDING.md](BUILDING.md) explains the one
 | Stencil buffer | The stencil value is kept in the alpha channel. Replacing or zeroing it is exact; incrementing, decrementing and inverting are not carried out. |
 | Render-target feedback | A draw that samples the target it is drawing to sees the target's previous contents. |
 | Curved surfaces | Bézier and spline patches are not drawn (the game is not known to use them). |
-| Sound synthesizer | Reverb is not rendered; envelope curves are close approximations of the console's. |
+| Sound synthesizer | The reverb the game applies to sound effects is an algorithmic approximation of each of the console's nine effect types, not a sample-exact copy; it can be switched off in the settings. Envelope curves are close approximations of the console's. |
 | Saves | Saves are plain files. Saves made on a console (which encrypts them) cannot be imported. |
 | Disc image | Only the one supported build of the game is accepted. |
 

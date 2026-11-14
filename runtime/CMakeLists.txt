@@ -50,6 +50,7 @@ endforeach()
 add_executable(p2ep
     main.cpp
     audio/audio_out.cpp
+    audio/reverb.cpp
     cpu/rt.cpp
     ge/ge.cpp
     ge/ge_texture.cpp

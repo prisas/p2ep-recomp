@@ -125,7 +125,9 @@ meanwhile. Unattended runs without the overlay answer dialogs with a default ins
 
 **Audio.** The game's own sound engine drives a 32-voice software synthesizer and streams
 ATRAC3plus music; both are mixed at 44.1 kHz in guest time and handed to the sound device, with a
-small rate adjustment to keep the device's clock and the game's in step.
+small rate adjustment to keep the device's clock and the game's in step. The synthesizer's
+reverb is an algorithmic one (damped comb filters into all-pass filters, plus a feedback delay for
+the echo types) with its own settings for each of the console's effect types.
 
 **Movies.** The program stream is demultiplexed as the game feeds it; H.264 video and ATRAC3plus
 audio are decoded with FFmpeg and returned one picture and one audio frame at a time, the way the

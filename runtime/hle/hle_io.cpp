@@ -3,6 +3,7 @@
 // delivered a moment later, so loading never waits for an imaginary drive.
 
 #include "runtime/hle/hle.h"
+#include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
 
 #include <algorithm>
@@ -152,6 +153,10 @@ s64 read_file(File* f, u32 buffer, u32 size) {
     if (f->kind == File::Kind::Disc) {
         if (f->pos >= f->size) return 0;
         u32 count = u32(std::min<u64>(size, f->size - f->pos));
+        // Which part of which file the game reads, by displayed frame: with an archive's table of
+        // contents this tells what the game is loading.
+        LOG_CH("files", "frame %llu read '%s' at %llx size %x", static_cast<unsigned long long>(host::frames_shown()),
+               f->path.c_str(), static_cast<unsigned long long>(f->pos), count);
         if (!host::image()->read(f->image_offset + f->pos, mem::ptr(buffer), count)) {
             LOG_ERROR("io", "disc read failed at %llu (+%u)", static_cast<unsigned long long>(f->image_offset + f->pos), count);
             return s64(s32(kErrError));

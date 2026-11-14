@@ -1,10 +1,15 @@
 // sceSasCore: a 32-voice software synthesizer. Each voice plays ADPCM (VAG) or PCM data at a
-// variable pitch through an ADSR envelope; the game asks for one "grain" of mixed output at a
-// time and sends it to an audio channel itself.
+// variable pitch through an ADSR envelope; the voices can be sent through a reverb (see
+// runtime/audio/reverb.h). The game asks for one "grain" of mixed output at a time and sends it to
+// an audio channel itself.
 
+#include "runtime/audio/reverb.h"
 #include "runtime/hle/hle.h"
+#include "runtime/platform/config.h"
 
 #include <algorithm>
+
+#include <xmmintrin.h>
 
 using namespace p2;
 using namespace p2::kernel;
@@ -224,13 +229,33 @@ private:
     bool stream_end_after_ = false;
 };
 
+// The effect settings as the game last set them.
+struct ReverbSettings {
+    s32 type = audio::Reverb::kOff, delay = 0, feedback = 0;
+    s32 left = 0, right = 0; // effect output volume, 0-0x1000
+    s32 dry = 1, wet = 0;    // whether the plain and the effect output are heard
+    bool operator==(const ReverbSettings&) const = default;
+};
+
 struct Sas {
     u32 grain = 256;
     u32 output_mode = 0;
     Voice voices[kVoices];
+    ReverbSettings reverb;
+    audio::Reverb effect;
 };
 
 Sas g_sas;
+ReverbSettings g_reverb_reported;
+
+void apply_reverb() {
+    const ReverbSettings& r = g_sas.reverb;
+    g_sas.effect.configure(r.type, r.delay, r.feedback);
+    if (r == g_reverb_reported) return;
+    g_reverb_reported = r;
+    LOG_CH("audio", "synthesizer reverb: type %d, delay %d, feedback %d, volume %d/%d, dry %d, wet %d", r.type, r.delay,
+           r.feedback, r.left, r.right, r.dry, r.wet);
+}
 
 // --- packed ("simple") envelope parameters --------------------------------------------------------------------
 
@@ -289,21 +314,42 @@ Curve curve_from_mode(u32 mode, Curve fallback) {
 void mix(u32 out, u32 in, s32 in_left, s32 in_right) {
     const u32 frames = g_sas.grain;
     if (!mem::valid(out, frames * 4)) return;
+    const ReverbSettings& r = g_sas.reverb;
+    const bool dry = r.dry != 0;
+    const bool wet = r.wet != 0 && g_sas.effect.active() && host::settings().reverb;
+    const f32 wet_left = f32(std::clamp(r.left, -0x1000, 0x1000)) / 4096.0f;
+    const f32 wet_right = f32(std::clamp(r.right, -0x1000, 0x1000)) / 4096.0f;
+    // A fading tail would otherwise end in denormal numbers, which are slow; flush them to zero
+    // while the effect runs.
+    const unsigned csr = _mm_getcsr();
+    if (wet) _mm_setcsr(csr | 0x8040);
     for (u32 i = 0; i < frames; ++i) {
+        s32 voices_left = 0, voices_right = 0;
+        for (Voice& v : g_sas.voices) {
+            if (!v.playing || v.paused) continue;
+            s32 s = v.render();
+            voices_left += (s * v.vol_left) >> 12;
+            voices_right += (s * v.vol_right) >> 12;
+        }
         s32 left = 0, right = 0;
         if (in) {
             left = (s32(s16(mem::r16(in + i * 4))) * in_left) >> 12;
             right = (s32(s16(mem::r16(in + i * 4 + 2))) * in_right) >> 12;
         }
-        for (Voice& v : g_sas.voices) {
-            if (!v.playing || v.paused) continue;
-            s32 s = v.render();
-            left += (s * v.vol_left) >> 12;
-            right += (s * v.vol_right) >> 12;
+        if (dry) {
+            left += voices_left;
+            right += voices_right;
+        }
+        if (wet) {
+            f32 effect_left, effect_right;
+            g_sas.effect.process(f32(voices_left), f32(voices_right), effect_left, effect_right);
+            left += s32(effect_left * wet_left);
+            right += s32(effect_right * wet_right);
         }
         mem::w16(out + i * 4, u16(s16(std::clamp(left, -32768, 32767))));
         mem::w16(out + i * 4 + 2, u16(s16(std::clamp(right, -32768, 32767))));
     }
+    if (wet) _mm_setcsr(csr);
 }
 
 } // namespace
@@ -311,7 +357,9 @@ void mix(u32 out, u32 in, s32 in_left, s32 in_right) {
 HLE(__sceSasInit) {
     u32 grain = ARG(1), voices = ARG(2);
     if (grain < 0x40 || grain > 0x800 || (grain & 0x1F)) RET(kErrInvalidGrain);
-    g_sas = Sas{};
+    g_sas.effect.configure(audio::Reverb::kOff, 0, 0);
+    g_sas.reverb = ReverbSettings{};
+    for (Voice& v : g_sas.voices) v = Voice{};
     g_sas.grain = grain;
     g_sas.output_mode = ARG(3);
     LOG_CH("audio", "synthesizer init: grain %u, %u voices, mode %u, %u Hz", grain, voices, ARG(3), ARG(4));
@@ -466,11 +514,32 @@ HLE(__sceSasGetAllEnvelopeHeights) {
     RET(0);
 }
 
-// Reverb is accepted but not rendered.
-HLE(__sceSasRevType) { RET(0); }
-HLE(__sceSasRevParam) { RET(0); }
-HLE(__sceSasRevEVOL) { RET(0); }
-HLE(__sceSasRevVON) { RET(0); }
+HLE(__sceSasRevType) {
+    g_sas.reverb.type = s32(ARG(1));
+    apply_reverb();
+    RET(0);
+}
+
+HLE(__sceSasRevParam) {
+    g_sas.reverb.delay = s32(ARG(1));
+    g_sas.reverb.feedback = s32(ARG(2));
+    apply_reverb();
+    RET(0);
+}
+
+HLE(__sceSasRevEVOL) {
+    g_sas.reverb.left = s32(ARG(1));
+    g_sas.reverb.right = s32(ARG(2));
+    apply_reverb();
+    RET(0);
+}
+
+HLE(__sceSasRevVON) {
+    g_sas.reverb.dry = s32(ARG(1));
+    g_sas.reverb.wet = s32(ARG(2));
+    apply_reverb();
+    RET(0);
+}
 
 HLE(__sceSasSetOutputmode) {
     g_sas.output_mode = ARG(1);

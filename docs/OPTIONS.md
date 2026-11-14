@@ -41,6 +41,7 @@ Esc opens the menu over the paused game. It works with the mouse, the keyboard o
 | Vertical sync | Present in step with the display. Off removes the display's latency at the cost of tearing. |
 | Show performance | A small display of frame rate, speed, frame time and rendering resolution. |
 | Volume | Output volume. |
+| Reverb on sound effects | The echo the game puts on its sound effects in some places. The program's reverb approximates the console's; switch it off for a dry sound. |
 | Fast-forward speed | How fast the game runs while fast-forward is held: unlimited, or 2x to 8x. |
 | Keys | The keyboard key for each console button. |
 

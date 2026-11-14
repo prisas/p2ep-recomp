@@ -25,6 +25,7 @@ struct Settings {
 
     // audio
     u32 volume = 100;           // percent
+    bool reverb = true;         // the synthesizer's reverb on sound effects
 
     // input
     u32 turbo_speed = 0;        // fast-forward limit as a multiple of normal speed; 0 is unlimited

@@ -1,6 +1,7 @@
 #include "lib/common/log.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +20,7 @@ bool g_all_channels = false;
 std::mutex g_mutex;
 FILE* g_file = nullptr;
 void (*g_fatal_hook)() = nullptr;
+std::chrono::steady_clock::time_point g_last_flush;
 
 const char* level_tag(Level level) {
     switch (level) {
@@ -41,7 +43,13 @@ void emit(Level level, const char* channel, const char* fmt, va_list args) {
     if (!g_file || level >= Level::Warn) std::fprintf(stderr, "[%s %s] %s\n", level_tag(level), channel, buffer);
     if (g_file) {
         std::fprintf(g_file, "[%s %s] %s\n", level_tag(level), channel, buffer);
-        if (level >= Level::Warn) std::fflush(g_file);
+        // Keep the file current enough to follow a long run while it is going, without paying
+        // for a flush on every line of a verbose trace.
+        const auto now = std::chrono::steady_clock::now();
+        if (level >= Level::Warn || now - g_last_flush > std::chrono::seconds(2)) {
+            std::fflush(g_file);
+            g_last_flush = now;
+        }
     }
 }
 

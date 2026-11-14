@@ -71,6 +71,7 @@ void load_settings(const std::filesystem::path& file) {
         else if (key == "smooth") s.smooth = n != 0;
         else if (key == "show_fps") s.show_fps = n != 0;
         else if (key == "volume") s.volume = std::min<u32>(n, 100);
+        else if (key == "reverb") s.reverb = n != 0;
         else if (key == "turbo_speed") s.turbo_speed = std::min<u32>(n, 16);
         else {
             for (u32 i = 0; i < kPadButtonCount; ++i)
@@ -90,6 +91,7 @@ bool save_settings() {
     append_format(out, "smooth = %u\n", u32(s.smooth));
     append_format(out, "show_fps = %u\n", u32(s.show_fps));
     append_format(out, "volume = %u\n", s.volume);
+    append_format(out, "reverb = %u\n", u32(s.reverb));
     append_format(out, "turbo_speed = %u\n", s.turbo_speed);
     for (u32 i = 0; i < kPadButtonCount; ++i) append_format(out, "%s = %u\n", kKeyNames[i], s.keys[i]);
     std::error_code ec;

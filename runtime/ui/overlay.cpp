@@ -368,6 +368,8 @@ void audio_tab() {
         s.volume = u32(volume);
         changed();
     }
+    if (ImGui::Checkbox("Reverb on sound effects", &s.reverb)) changed();
+    ImGui::TextDisabled("Where the game asks for it. An approximation of the console's effect.");
 }
 
 void controls_tab() {
