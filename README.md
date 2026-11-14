@@ -58,8 +58,8 @@ Details are in [docs/BUILDING.md](docs/BUILDING.md); controls and command-line o
 
 ## Status
 
-The game starts, plays its movies, runs the opening of the story, and saves and loads. Battles and
-everything after the first area have not been tested yet. See
+The game starts, plays its movies, runs the opening hours of the story, and saves and loads.
+Battles have not been tested yet. See
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for exactly what has been verified, what has not,
 and the known limitations.
 

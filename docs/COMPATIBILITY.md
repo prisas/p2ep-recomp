@@ -23,9 +23,11 @@ Test configuration: Windows 11, AMD Ryzen 7 7800X3D, NVIDIA GeForce RTX 4080 SUP
 | Settings | The menu opens over the paused game in the window; a settings file is read back and applied |
 | Window | Paced to 59.94 Hz; the picture is drawn at twice the console's resolution in the default window |
 
-Long unattended runs with randomised input (the longest about two hours of game time, during which
-the story advanced out of the first area) completed without an error, a stall or an unknown code
-address.
+| Beyond the first area | The city map, the school grounds, classrooms, corridors and the teachers' lounge, with conversations and dialogue choices (reached by the unattended runs below) |
+
+Long unattended runs with randomised input completed without an error, a stall or an unknown code
+address. The longest covered 1.6 million frames, about seven and a half hours of game time and
+525 million draw calls, and wandered from the first area across the city into the school.
 
 Not checked by a person at the keyboard: how the game feels to play, sound quality by ear,
 gamepads, resizing the window and full screen, changing settings from the menu with the mouse, and
@@ -37,8 +39,8 @@ These parts of the game have not been reached in testing. They use the same mach
 above, but until someone has played them they should be treated as untested:
 
 - battles, including spell effects and Persona summoning;
-- the city map, shops, the Velvet Room and other facilities;
-- everything after the first area of the story;
+- shops, the Velvet Room and other facilities;
+- the story beyond the first visit to the school;
 - the Gallery and Config entries of the title menu;
 - the delete-data list (the game did not offer it in the parts played).
 
