@@ -44,8 +44,6 @@ Disc images in ISO and CHD format are accepted.
 - Save, load and message screens of its own in place of the console's, with save pictures and
   descriptions. Saves are plain files in a normal folder.
 - Keyboard (rebindable) and gamepad input, hot-pluggable.
-- Fast: the opening minutes of the game run at about 43 times real time on a current desktop
-  processor when left unthrottled, so normal play uses a few percent of one core.
 
 ## Quick start
 
