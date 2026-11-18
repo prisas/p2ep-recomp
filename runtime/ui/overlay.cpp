@@ -9,6 +9,7 @@
 #include "lib/common/file.h"
 #include "lib/common/log.h"
 #include "runtime/audio/audio_out.h"
+#include "runtime/game/tweaks.h"
 #include "runtime/gfx/texture_pack.h"
 #include "runtime/gfx/vk/vk_renderer.h"
 #include "runtime/platform/config.h"
@@ -386,6 +387,27 @@ void general_tab() {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("When off, the game starts straight away with the last disc image chosen. Hold Shift "
                         "while starting it to see the launcher anyway.");
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+
+    ImGui::SeparatorText("Gameplay");
+    int rate = int(s.encounter_rate);
+    if (ImGui::SliderInt("Enemy encounters", &rate, 0, int(game::kMaxEncounterRate), "%d%%")) {
+        s.encounter_rate = u32(std::clamp(rate, 0, int(game::kMaxEncounterRate)) + 2) / 5 * 5; // steps of 5%
+        changed();
+    }
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    if (s.encounter_rate == 100) {
+        ImGui::TextDisabled("Random battles as often as in the original game.");
+    } else if (s.encounter_rate > 100) {
+        ImGui::TextDisabled("Random battles %.1f times as often. Rewards are unchanged.", f64(s.encounter_rate) / 100.0);
+    } else {
+        ImGui::TextDisabled("%s Each battle gives %.2gx the experience and money.",
+                            s.encounter_rate == 0 ? "No random battles (battles the story sets up still happen)."
+                                                  : "Fewer random battles.",
+                            f64(game::reward_multiplier(s.encounter_rate)));
+    }
     ImGui::PopTextWrapPos();
     ImGui::Unindent();
 }

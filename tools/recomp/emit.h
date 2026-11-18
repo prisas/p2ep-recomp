@@ -3,6 +3,7 @@
 #include "tools/recomp/analysis.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,9 @@ struct EmitOptions {
     u32 module_end = 0;
     u32 module_entry = 0;
     u32 module_gp = 0;
+    // Guest addresses where the runtime's game_hook() is called just before the instruction there
+    // runs: the program's own adjustments to the game (see runtime/game).
+    std::set<u32> hooks;
 };
 
 struct EmitResult {
@@ -23,6 +27,9 @@ struct EmitResult {
     std::map<std::string, std::string> files;
     // Instructions reachable by control flow that the emitter cannot translate.
     std::vector<std::string> unimplemented;
+    // The hooks that were placed; one that is missing is not at an instruction the code runs on its
+    // own (a delay slot, the second half of an unaligned pair, or unreachable code).
+    std::set<u32> hooks_placed;
     u32 text_base = 0;
     u32 text_words = 0;
 };

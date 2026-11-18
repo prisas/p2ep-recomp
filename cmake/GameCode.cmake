@@ -38,6 +38,13 @@ function(p2ep_add_game_code target)
         list(APPEND entries_deps "${blobs_file}")
     endif()
 
+    # Where the runtime adjusts the game (runtime/game): a call to game_hook() before each listed instruction.
+    set(hooks_file "${CMAKE_SOURCE_DIR}/data/hooks.txt")
+    if(EXISTS "${hooks_file}")
+        list(APPEND entries_args --hooks "${hooks_file}")
+        list(APPEND entries_deps "${hooks_file}")
+    endif()
+
     # The tool rewrites only the files whose content changed, so an unchanged shard is not recompiled.
     add_custom_command(
         OUTPUT "${gen_dir}/gen.stamp"

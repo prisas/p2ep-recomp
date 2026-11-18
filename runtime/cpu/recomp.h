@@ -50,6 +50,10 @@ void rt_slice(Cpu* c, u8* m);
 void rt_dispatch_miss(Cpu* c, u8* m);
 // Reached code the recompiler could not translate.
 [[noreturn]] void rt_trap(Cpu* c, u8* m, u32 pc, u32 word);
+
+// Called just before the instruction at `pc` runs, for each address in data/hooks.txt: where the
+// program adjusts the game (runtime/game). It may read and change registers and memory.
+void game_hook(Cpu* c, u8* m, u32 pc);
 void rt_break(Cpu* c, u8* m, u32 pc, u32 code);
 void rt_syscall(Cpu* c, u8* m, u32 pc, u32 code);
 // A callee came back with an unexpected return address (developer builds).

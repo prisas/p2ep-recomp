@@ -27,6 +27,7 @@ struct Options {
     u32 menu_tab = 0;                   // ... on this tab
     std::filesystem::path ram_dump;     // write the guest's main memory here (debugging) ...
     u64 ram_dump_frame = 0;             // ... when this many frames have been shown
+    u64 ram_dump_to = 0, ram_dump_step = 0; // ... and again every step frames up to this one (files named <stem>_<frame>)
 };
 
 Options& options();
