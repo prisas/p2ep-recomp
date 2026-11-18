@@ -72,6 +72,7 @@ add_executable(p2ep
     media/codec.cpp
     mem/memory.cpp
     platform/config.cpp
+    platform/control.cpp
     platform/frame.cpp
     platform/host.cpp
     platform/upscale_job.cpp

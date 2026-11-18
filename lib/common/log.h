@@ -11,6 +11,7 @@ enum class Level : u8 { Info, Warn, Error, Off };
 // Channels can be enabled individually (for example "hle,ge") on top of the global level.
 Level level();
 void enable_channels(const std::string& comma_separated);
+void disable_channels();
 bool channel_enabled(const char* channel);
 bool open_file(const std::string& path);
 
