@@ -1,0 +1,5 @@
+# Guest addresses where the generated code calls p2::game_hook() just before the instruction there
+# runs (runtime/game/tweaks.cpp). One hexadecimal address per line; '#' starts a comment.
+
+089818A4    # encounter roll, entry: a0 is the step's encounter value (scaled by the encounter rate)
+089790C8    # battle results payout, entry: experience and money totals (boosted below 100%)

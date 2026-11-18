@@ -35,6 +35,8 @@ Disc images in ISO and CHD format are accepted.
 - Instant disc access: data is read straight from the image with no simulated drive delays.
 - A launcher to pick the disc image (it is checked before the game starts) and change the
   settings before playing, and an in-game settings menu (Esc); settings persist.
+- An enemy-encounter setting from 0% to 200% of the original rate; fewer battles give more
+  experience and money each (up to 3x).
 - An optional quick start that skips the start-up notices, logos and opening movie and boots
   straight to the main menu.
 - Texture packs: the game's textures can be dumped, upscaled with the built-in upscaler (FFmpeg's

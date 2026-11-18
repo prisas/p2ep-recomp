@@ -34,8 +34,10 @@ part of this repository.
 | `runtime/audio`, `runtime/media` | Audio device output; ATRAC and H.264 decoding |
 | `runtime/platform` | Window, input, settings, frame pacing, dumps |
 | `runtime/ui` | Launcher, and the overlay: settings menu, system dialogs, performance display |
+| `runtime/game` | Gameplay adjustments made through hooks (encounter rate and battle rewards) |
 | `data/psp_api` | Names of the console's system functions, grouped by library |
 | `data/code_blobs.txt` | Files the game loads at fixed addresses and executes |
+| `data/hooks.txt` | Game instructions before which the runtime gets control (see *Gameplay adjustments*) |
 | `tests` | Unit tests and an end-to-end recompiler test |
 
 ## The recompiler
@@ -139,6 +141,17 @@ its main menu by itself once the opening movie is gone. With the setting on, the
 Start on the player's behalf and runs at full speed, with the window blank and the sound muted,
 until the game shuts the opening movie down. It stops early if a system dialog or the settings menu
 needs the player, and gives up after two minutes of game time. No game code or data is altered.
+
+**Gameplay adjustments.** For each address in `data/hooks.txt` the recompiler emits a call to
+`game_hook()` just before the instruction there (generation fails if an address is a delay slot or
+code that never runs), and `runtime/game` changes registers or memory at that point. Two hooks
+implement the encounter-rate setting. In a dungeon, every step passes an encounter value to the
+game's encounter roll, which adds it to a counter and, once the counter is past 2048, rolls against
+the area's encounter table each time it crosses a multiple of 512; the hook at the roll's entry
+scales that value by the setting (keeping the remainder between steps, and leaving alone the value
+32767 the game uses to force a battle). The hook at the entry of the results payout multiplies the
+battle's experience and money totals before the game applies its own item modifiers, shows them
+and pays them out. At 100% neither hook changes anything, so the game runs exactly as before.
 
 **Overlay and system dialogs.** The settings menu and the screens the console's system software
 would show (save-slot lists, messages) are drawn with Dear ImGui into the final picture, after the
