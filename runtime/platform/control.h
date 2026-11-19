@@ -15,6 +15,7 @@
 //   shot                       write <dir>/shot.png, then "<number> <frame>" to <dir>/status.txt
 //   quit                       end the run
 //   trace <channels>           switch log channels on (hle, thread, io, ...), untrace switches them off
+//   threads                    log every guest thread: state, priority, what it waits on
 //
 // Buttons are up, down, left, right, cross, circle, square, triangle, l, r, start and select,
 // joined with '+' (for example up+right).

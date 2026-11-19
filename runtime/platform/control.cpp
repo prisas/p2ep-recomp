@@ -3,6 +3,7 @@
 #include "lib/common/file.h"
 #include "lib/common/log.h"
 #include "runtime/cpu/rt.h"
+#include "runtime/kernel/kernel.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/window.h"
 
@@ -18,7 +19,7 @@ namespace p2::host::control {
 namespace {
 
 struct Command {
-    enum Kind { Hold, Wait, Shot, Quit, Trace, Untrace } kind = Wait;
+    enum Kind { Hold, Wait, Shot, Quit, Trace, Untrace, Threads } kind = Wait;
     u32 buttons = 0;
     u64 frames = 0;
     std::string text; // Trace: the channels
@@ -81,6 +82,8 @@ void parse(const std::string& text) {
             g_queue.push_back({Command::Trace, 0, 0, a});
         } else if (verb == "untrace") {
             g_queue.push_back({Command::Untrace});
+        } else if (verb == "threads") {
+            g_queue.push_back({Command::Threads});
         } else {
             LOG_WARN("control", "unknown command '%s'", line.c_str());
         }
@@ -130,6 +133,12 @@ bool before_frame(u64 frame) {
             // A warning flushes the log file, so what was traced can be read straight away.
             LOG_WARN("control", "tracing %s at frame %llu", c.kind == Command::Trace ? c.text.c_str() : "off",
                      static_cast<unsigned long long>(frame));
+            g_queue.pop_front();
+            continue;
+        }
+        if (c.kind == Command::Threads) {
+            LOG_WARN("control", "guest threads at frame %llu:", static_cast<unsigned long long>(frame));
+            kernel::dump_state();
             g_queue.pop_front();
             continue;
         }
