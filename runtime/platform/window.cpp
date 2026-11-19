@@ -26,6 +26,7 @@ bool g_sdl_ready = false;
 std::vector<std::pair<u64, u32>> g_script; // (frame, buttons), sorted
 u32 g_script_buttons = 0;
 u32 g_injected = 0;
+u32 g_control = 0;
 
 bool g_quit = false;
 u32 g_held_over = 0; // buttons still down from before the overlay gave the pad back
@@ -238,11 +239,12 @@ void set_fullscreen(bool on) {
 }
 
 void set_injected_buttons(u32 buttons) { g_injected = buttons; }
+void set_control_buttons(u32 buttons) { g_control = buttons; }
 void set_drop_handler(void (*handler)(const char* path)) { g_drop_handler = handler; }
 
 bool pump_events() {
     PadState pad;
-    pad.buttons = g_script_buttons | g_injected;
+    pad.buttons = g_script_buttons | g_injected | g_control;
     if (!g_sdl_ready) {
         route_pad(pad);
         return !g_quit;

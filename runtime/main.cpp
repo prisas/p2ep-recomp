@@ -12,6 +12,7 @@
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
 #include "runtime/platform/config.h"
+#include "runtime/platform/control.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/upscale_job.h"
@@ -239,6 +240,7 @@ int wmain(int argc, wchar_t** wargv) {
             opt.menu_tab = *end == ':' ? u32(std::strtoul(end + 1, nullptr, 10)) : 0;
         }
         else if (a == "--unthrottled") opt.unthrottled = true;
+        else if (a == "--control") host::control::init(utf8_path(value())); // see runtime/platform/control.h
         else if (a == "--frames") opt.frame_limit = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--dump-frames") opt.dump_dir = utf8_path(value());
         else if (a == "--dump-every") opt.dump_every = u32(std::strtoul(value().c_str(), nullptr, 10));

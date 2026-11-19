@@ -13,6 +13,7 @@
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem/memory.h"
 #include "runtime/platform/config.h"
+#include "runtime/platform/control.h"
 #include "runtime/platform/host.h"
 #include "runtime/platform/window.h"
 #include "runtime/ui/overlay.h"
@@ -82,13 +83,9 @@ void pace(u32 speed) {
 }
 
 void dump_frame() {
-    ge::Renderer* renderer = ge::renderer();
-    if (!renderer) return;
     std::vector<u8> pixels;
     u32 w = 0, h = 0;
-    // With the overlay on in an unattended run, dump the composed picture so the overlay shows.
-    const bool composed = g_renderer && ui::active() && g_renderer->capture_output(pixels, w, h);
-    if (!composed && !renderer->capture(pixels, w, h)) return;
+    if (!capture_picture(pixels, w, h)) return;
     std::error_code ec;
     std::filesystem::create_directories(options().dump_dir, ec);
     std::string path = (options().dump_dir / format("frame_%06llu.png", static_cast<unsigned long long>(g_frames))).string();
@@ -148,10 +145,19 @@ bool write_png(const std::string& path, u32 width, u32 height, const void* rgba)
     return stbi_write_png(path.c_str(), int(width), int(height), 4, rgba, int(width) * 4) != 0;
 }
 
+bool capture_picture(std::vector<u8>& rgba, u32& width, u32& height) {
+    ge::Renderer* renderer = ge::renderer();
+    if (!renderer) return false;
+    // With the overlay on in an unattended run, the composed picture, so the overlay shows.
+    if (g_renderer && ui::active() && g_renderer->capture_output(rgba, width, height)) return true;
+    return renderer->capture(rgba, width, height);
+}
+
 void set_renderer(gfx::Renderer* renderer) { g_renderer = renderer; }
 
 void on_frame() {
     const Options& opt = options();
+    if (control::active() && !control::before_frame(g_frames)) kernel::request_stop(0);
     advance_input_script(g_frames);
     if (opt.menu_frame && g_frames == opt.menu_frame) ui::open_menu(int(opt.menu_tab));
     update_intro_skip();
@@ -173,6 +179,7 @@ void on_frame() {
         renderer->present(target);
         g_present_ticks += ge::host_ticks() - started;
         if (!opt.dump_dir.empty() && opt.dump_every && g_frames >= opt.dump_from && g_frames % opt.dump_every == 0) dump_frame();
+        control::after_frame(g_frames);
         // While the menu is open the game stands still: keep showing the same picture under it.
         while (running && ui::menu_open() && !opt.headless) {
             pace(1);

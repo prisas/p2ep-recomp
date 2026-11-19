@@ -153,13 +153,21 @@ void seek_to(Track& t, s32 sample) {
 // Decodes until at least one sample is ready. Returns false when the needed data has not arrived.
 bool fill_pcm(Track& t) {
     while (t.pcm.empty()) {
-        if (t.next_frame >= t.frame_count()) return false;
-        if (t.next_frame >= t.frames_available()) return false;
-        const u8* frame = t.file.data() + t.data_offset + size_t(t.next_frame) * t.block_align;
         std::vector<s16> decoded;
-        int n = t.decoder.decode(frame, t.block_align, decoded);
-        ++t.next_frame;
-        if (n <= 0) decoded.assign(size_t(t.samples_per_frame) * 2, 0); // keep time moving over a bad frame
+        if (t.next_frame >= t.frame_count()) {
+            // Past the last frame of data. The header's sample count can end a little beyond it (the
+            // start offset already takes up part of the first frames), so what is left up to the end
+            // or the loop point is silence. Without it such a track never finishes, and the game's
+            // player thread retries without end and without ever letting another thread run.
+            decoded.assign(size_t(t.samples_per_frame) * 2, 0);
+            ++t.next_frame;
+        } else {
+            if (t.next_frame >= t.frames_available()) return false;
+            const u8* frame = t.file.data() + t.data_offset + size_t(t.next_frame) * t.block_align;
+            int n = t.decoder.decode(frame, t.block_align, decoded);
+            ++t.next_frame;
+            if (n <= 0) decoded.assign(size_t(t.samples_per_frame) * 2, 0); // keep time moving over a bad frame
+        }
         s32 frames = s32(decoded.size() / 2);
         s32 drop = std::min(t.discard, frames);
         t.discard -= drop;
@@ -205,6 +213,8 @@ HLE(sceAtracSetDataAndGetID) {
     LOG_CH("audio", "atrac %u: %s, %u ch, %u Hz, %u-byte frames, %d samples, loop %d-%d, file %u bytes (%u supplied)", id,
            t.plus ? "ATRAC3plus" : "ATRAC3", t.channels, t.sample_rate, t.block_align, t.end_sample + 1, t.loop_start, t.loop_end,
            t.file_size, size);
+    LOG_CH("audio", "atrac %u: data at %u, %u bytes (%u frames, %u samples), first sample offset %d", id, t.data_offset,
+           t.data_size, t.frame_count(), t.frame_count() * t.samples_per_frame, t.first_sample_offset);
     RET(id);
 }
 
@@ -227,7 +237,11 @@ HLE(sceAtracDecodeData) {
         RET(kErrAllDataDecoded);
     }
     if (!fill_pcm(*t)) {
+        // Like the firmware, still report the state: the remaining frames (none) tell the game to
+        // supply more data, instead of it acting on the count from an earlier call.
         if (mem::valid(count_ptr, 4)) mem::w32(count_ptr, 0);
+        if (mem::valid(finish_ptr, 4)) mem::w32(finish_ptr, 0);
+        if (mem::valid(remain_ptr, 4)) mem::w32(remain_ptr, u32(remaining_frames(*t)));
         RET(kErrBufferIsEmpty);
     }
 

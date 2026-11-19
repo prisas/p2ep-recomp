@@ -70,6 +70,13 @@ void enable_channels(const std::string& comma_separated) {
     g_any_channel.store(g_all_channels || !g_channels.empty(), std::memory_order_relaxed);
 }
 
+void disable_channels() {
+    std::lock_guard lock(g_mutex);
+    g_channels.clear();
+    g_all_channels = false;
+    g_any_channel.store(false, std::memory_order_relaxed);
+}
+
 bool channel_enabled(const char* channel) {
     if (!g_any_channel.load(std::memory_order_relaxed)) return false;
     if (g_all_channels) return true;

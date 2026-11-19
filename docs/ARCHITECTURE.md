@@ -79,6 +79,10 @@ declared not to alias. Details:
   control transfers. "Likely" branches execute the slot only when taken.
 - A direct call is a direct C++ call. An indirect call or jump indexes a table with one slot per
   instruction word of the executable, so dispatch is a bounds check and a load.
+- A routine can end by jumping into the middle of its caller instead of returning (the patch code
+  added to the executable does this). The rest of the caller then runs inside the call, including
+  its return; the caller sees a foreign return address and a stack pointer above its own when the
+  call comes back, and returns straight away too.
 - Calls into system libraries are bound by name at generation time and become direct calls to the
   runtime's implementation. A missing implementation is a link error.
 - Every block charges its instruction count to a per-thread counter; loop heads and function

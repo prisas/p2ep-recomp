@@ -79,23 +79,34 @@ P2_INLINE GuestFn lookup_guest_fn(u32 target) {
 #if defined(P2EP_DEV)
 #define P2_ENTER(ra) (*c->shadow_sp++ = (ra))
 #define P2_LEAVE() (--c->shadow_sp)
-#define P2_LEAVE_CHECK(ra)                                                                                   \
-    do {                                                                                                     \
-        --c->shadow_sp;                                                                                      \
-        if (P2_UNLIKELY(c->r[31] != (ra))) ::p2::rt_bad_return(c, m, (ra));                                  \
-    } while (0)
+#define P2_REPORT_BAD_RETURN(ra) ::p2::rt_bad_return(c, m, (ra))
 #else
 #define P2_ENTER(ra) ((void)0)
 #define P2_LEAVE() ((void)0)
-#define P2_LEAVE_CHECK(ra) ((void)0)
+#define P2_REPORT_BAD_RETURN(ra) ((void)0)
 #endif
+
+// After a call linked through $ra. A callee can leave by jumping into the middle of the function
+// that called it instead of returning (routines the executable's patch adds do this). The rest of
+// the caller then runs inside the call, up to and including its own return, so the call comes
+// back with a return address that is not this call site's and the stack pointer above where it
+// was: this function has already returned, and must do so here as well.
+#define P2_AFTER_CALL(ra, sp)                                                                                \
+    do {                                                                                                     \
+        P2_LEAVE();                                                                                          \
+        if (P2_UNLIKELY(c->r[31] != (ra))) {                                                                 \
+            if (c->r[29] > (sp)) return;                                                                     \
+            P2_REPORT_BAD_RETURN(ra);                                                                        \
+        }                                                                                                    \
+    } while (0)
 
 // Direct call to a known function; `ra` is the guest return address already stored in $ra.
 #define P2_CALL(fn, ra)                                                                                      \
     do {                                                                                                     \
         P2_ENTER(ra);                                                                                        \
+        const u32 sp_at_call_ = c->r[29];                                                                    \
         fn(c, m);                                                                                            \
-        P2_LEAVE_CHECK(ra);                                                                                  \
+        P2_AFTER_CALL(ra, sp_at_call_);                                                                      \
     } while (0)
 
 // Indirect call through the dispatch table. `checked` call sites linked through $ra.
@@ -103,8 +114,9 @@ P2_INLINE GuestFn lookup_guest_fn(u32 target) {
     do {                                                                                                     \
         c->pc = (target);                                                                                    \
         P2_ENTER(ra);                                                                                        \
+        const u32 sp_at_call_ = c->r[29];                                                                    \
         ::p2::lookup_guest_fn(c->pc)(c, m);                                                                  \
-        P2_LEAVE_CHECK(ra);                                                                                  \
+        P2_AFTER_CALL(ra, sp_at_call_);                                                                      \
     } while (0)
 
 #define P2_CALL_IND_NOCHECK(target, ra)                                                                      \
