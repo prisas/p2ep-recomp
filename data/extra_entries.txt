@@ -1,0 +1,6 @@
+# Function starts the recompiler cannot find by itself: one hexadecimal address per line, '#' starts
+# a comment. Listed here when the game stops with "indirect jump to ..., which is not a known entry".
+
+08C6C504    # patched-in code in .rodata: a leaf routine (no stack frame) right after another one's return,
+            # reached only through a handler table the game builds at run time (talking to the
+            # Kuzunoha Detective Agency's chief, Aoba)
