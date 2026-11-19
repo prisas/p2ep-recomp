@@ -239,9 +239,17 @@ bool generate(const psp::Module& module, const std::string& sha256, const psp::N
     emit_options.module_end = module.end;
     emit_options.module_entry = module.module_start ? module.module_start : module.entry;
     emit_options.module_gp = module.gp;
+    emit_options.hooks.insert(options.hooks.begin(), options.hooks.end());
 
     EmitResult emitted;
     emit(program, emit_options, emitted);
+    for (u32 hook : emit_options.hooks) {
+        if (emitted.hooks_placed.count(hook)) continue;
+        if (error)
+            *error = format("hook %08X is not at an instruction the translated code runs on its own (delay slot, "
+                            "second half of an unaligned pair, or unreachable)", hook);
+        return false;
+    }
 
     summary.stats = program.stats;
     summary.functions = program.functions.size();
@@ -255,6 +263,7 @@ bool generate(const psp::Module& module, const std::string& sha256, const psp::N
     append_format(rep, "translated words         %zu (%.2f%%)\n", st.covered_words,
                   st.code_words ? 100.0 * double(st.covered_words) / double(st.code_words) : 0.0);
     append_format(rep, "functions                %zu\n", summary.functions);
+    if (!emit_options.hooks.empty()) append_format(rep, "hooks                    %zu\n", emit_options.hooks.size());
     {
         static const char* const names[] = {"module entry points", "direct call targets", "data pointers",
                                             "code pointers", "split at branch target", "forced"};

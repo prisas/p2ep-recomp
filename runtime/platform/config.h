@@ -21,6 +21,9 @@ struct Settings {
     bool show_launcher = true;  // started without an image, show the launcher (else play `image` at once)
     bool skip_intro = false;    // start at the main menu: notices, logos and the opening movie skipped
 
+    // gameplay
+    u32 encounter_rate = 100;   // percent of the game's own chance of random battles, 0-200 (see runtime/game)
+
     // video
     u32 scale = 0;              // internal resolution multiplier, 1-10; 0 follows the window size
     u32 window_width = 960;     // size of the window's picture area in pixels, when not full screen

@@ -54,7 +54,8 @@ int usage() {
               "  p2recomp disasm <image> <hex-address> [count] [--code] [--blobs <file>]\n"
               "      Disassemble part of the relocated executable.\n"
               "  p2recomp gen --image <image> --out <dir> --api <dir> [--shards N] [--entries <file>]\n"
-              "               [--blobs <file>] [--stamp <file>] [--no-comments] [--allow-unknown] [--keep-going]\n"
+              "               [--blobs <file>] [--hooks <file>] [--stamp <file>] [--no-comments] [--allow-unknown]\n"
+              "               [--keep-going]\n"
               "      Translate the executable to C++.\n");
     return 2;
 }
@@ -208,13 +209,14 @@ int cmd_gen(const Args& args) {
     options.out_dir = args.get("out");
     options.shards = u32(std::strtoul(args.get("shards", "96").c_str(), nullptr, 10));
     options.comments = !args.has("no-comments");
-    if (args.has("entries")) {
+    // Address lists: one hexadecimal address per line; '#' starts a comment.
+    auto read_addresses = [&](const char* key, std::vector<u32>& out) {
+        if (!args.has(key)) return true;
         std::string text;
-        if (!read_text_file(args.get("entries"), text)) {
-            std::fprintf(stderr, "error: cannot read %s\n", args.get("entries").c_str());
-            return 1;
+        if (!read_text_file(args.get(key), text)) {
+            std::fprintf(stderr, "error: cannot read %s\n", args.get(key).c_str());
+            return false;
         }
-        // One hexadecimal address per line; '#' starts a comment.
         size_t pos = 0;
         while (pos < text.size()) {
             size_t end = text.find('\n', pos);
@@ -223,10 +225,12 @@ int cmd_gen(const Args& args) {
             if (size_t hash = entry.find('#'); hash != std::string::npos) entry.resize(hash);
             char* stop = nullptr;
             unsigned long value = std::strtoul(entry.c_str(), &stop, 16);
-            if (stop != entry.c_str()) options.extra_entries.push_back(u32(value));
+            if (stop != entry.c_str()) out.push_back(u32(value));
             pos = end + 1;
         }
-    }
+        return true;
+    };
+    if (!read_addresses("entries", options.extra_entries) || !read_addresses("hooks", options.hooks)) return 1;
 
     if (!load_blobs(args, game, options.blobs)) return 1;
 

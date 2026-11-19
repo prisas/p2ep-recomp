@@ -547,6 +547,10 @@ private:
                 pc += 4;
                 break;
             }
+            if (opt_.hooks.count(pc)) {
+                raw(1, format("::p2::game_hook(c, m, 0x%08Xu);", pc));
+                result_.hooks_placed.insert(pc);
+            }
             if (!i.has_delay_slot()) {
                 if (pc + 8 <= b.end) {
                     Insn following(in_.word(pc + 4));

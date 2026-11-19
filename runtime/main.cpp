@@ -249,11 +249,16 @@ int wmain(int argc, wchar_t** wargv) {
         else if (a == "--dump-audio") audio_dump = value();
         else if (a == "--trace-frame") opt.trace_frame = std::strtoull(value().c_str(), nullptr, 10);
         else if (a == "--log-from") opt.late_from = std::strtoull(value().c_str(), nullptr, 10);
-        else if (a == "--dump-ram") { // <file>@<frame>
+        else if (a == "--dump-ram") { // <file>@<frame>[:<to frame>:<every>]
             const std::string spec = value();
             const size_t at = spec.rfind('@');
             opt.ram_dump = utf8_path(spec.substr(0, at));
-            opt.ram_dump_frame = at == std::string::npos ? 0 : std::strtoull(spec.c_str() + at + 1, nullptr, 10);
+            char* end = nullptr;
+            opt.ram_dump_frame = at == std::string::npos ? 0 : std::strtoull(spec.c_str() + at + 1, &end, 10);
+            if (end && *end == ':') {
+                opt.ram_dump_to = std::strtoull(end + 1, &end, 10);
+                opt.ram_dump_step = *end == ':' ? std::strtoull(end + 1, nullptr, 10) : 0;
+            }
         } else if (a == "--watch") { // <hex address>:<bytes>@<frame>
             const std::string spec = value();
             char* end = nullptr;

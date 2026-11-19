@@ -52,6 +52,7 @@ add_executable(p2ep
     audio/audio_out.cpp
     audio/reverb.cpp
     cpu/rt.cpp
+    game/tweaks.cpp
     ge/ge.cpp
     ge/ge_texture.cpp
     gfx/texture_pack.cpp

@@ -36,6 +36,7 @@ struct GenerateOptions {
     bool comments = true;
     std::vector<u32> extra_entries;
     std::vector<CodeBlob> blobs;
+    std::vector<u32> hooks; // see EmitOptions::hooks
 };
 
 struct GenerateSummary {

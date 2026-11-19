@@ -67,6 +67,7 @@ void load_settings(const std::filesystem::path& file) {
         if (key == "image") s.image = value;
         else if (key == "show_launcher") s.show_launcher = n != 0;
         else if (key == "skip_intro") s.skip_intro = n != 0;
+        else if (key == "encounter_rate") s.encounter_rate = std::min<u32>(n, 200);
         else if (key == "scale") s.scale = std::min<u32>(n, 10);
         else if (key == "window_width") s.window_width = std::clamp<u32>(n, 320, 16384);
         else if (key == "window_height") s.window_height = std::clamp<u32>(n, 180, 16384);
@@ -94,6 +95,7 @@ bool save_settings() {
     out += "image = " + s.image + "\n";
     append_format(out, "show_launcher = %u\n", u32(s.show_launcher));
     append_format(out, "skip_intro = %u\n", u32(s.skip_intro));
+    append_format(out, "encounter_rate = %u\n", s.encounter_rate);
     append_format(out, "scale = %u\n", s.scale);
     append_format(out, "window_width = %u\n", s.window_width);
     append_format(out, "window_height = %u\n", s.window_height);

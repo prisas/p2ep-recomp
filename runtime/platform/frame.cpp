@@ -196,8 +196,17 @@ void on_frame() {
         refresh_hle_trace();
     }
     if (opt.watch_size && g_frames == opt.watch_from) mem::watch_writes(opt.watch_addr, opt.watch_size);
-    if (!opt.ram_dump.empty() && g_frames == opt.ram_dump_frame)
-        write_file(opt.ram_dump, mem::ptr(mem::kRamBase), mem::kRamSize);
+    if (!opt.ram_dump.empty()) {
+        if (opt.ram_dump_step && g_frames >= opt.ram_dump_frame && g_frames <= opt.ram_dump_to &&
+            (g_frames - opt.ram_dump_frame) % opt.ram_dump_step == 0) {
+            std::filesystem::path file = opt.ram_dump;
+            file.replace_filename(file.stem().string() + format("_%llu", static_cast<unsigned long long>(g_frames)) +
+                                  file.extension().string());
+            write_file(file, mem::ptr(mem::kRamBase), mem::kRamSize);
+        } else if (!opt.ram_dump_step && g_frames == opt.ram_dump_frame) {
+            write_file(opt.ram_dump, mem::ptr(mem::kRamBase), mem::kRamSize);
+        }
+    }
     ge::set_draw_trace(g_frames == opt.trace_frame);
     if (g_frames == opt.trace_frame) {
         const hle::DisplayState& display = hle::display();
