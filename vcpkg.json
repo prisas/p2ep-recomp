@@ -15,6 +15,7 @@
             "features": ["tools"]
         },
         "stb",
+        "xxhash",
         {
             "name": "ffmpeg",
             "default-features": false,

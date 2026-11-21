@@ -30,6 +30,11 @@ struct TextureDesc {
     u32 clut_mask = 0xFF;
     u32 clut_base = 0;
     u64 clut_hash = 0; // identifies the palette contents for indexed formats
+    // For indexed formats, what PPSSPP-format texture packs name textures by (see gfx/ppsspp_pack.h):
+    // the palette format register, and the sizes of the last and the largest palette load.
+    u32 clut_format_reg = 0;
+    u32 clut_load_bytes = 0;
+    u32 clut_max_bytes = 0;
     // The game touched the texture state since the last draw: its pixels may have changed even if
     // they were already checked this frame.
     bool revalidate = false;

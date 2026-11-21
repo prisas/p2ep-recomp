@@ -2,6 +2,8 @@
 
 #include "lib/common/file.h"
 #include "lib/common/log.h"
+#include "runtime/gfx/texture_pack.h"
+#include "tools/texup/realesrgan.h"
 
 #include <atomic>
 #include <cstdio>
@@ -38,6 +40,9 @@ void read_output(HANDLE pipe, HANDLE process) {
         if (std::sscanf(text.c_str(), "progress %u %u", &a, &b) == 2) {
             g_done = a;
             g_total = b;
+        } else if (text.rfind("error ", 0) == 0) {
+            result.message = text.substr(6);
+            LOG_WARN("upscale", "%s", result.message.c_str());
         } else if (std::sscanf(text.c_str(), "done %u %u %u %u", &a, &b, &c, &d) == 4) {
             result.upscaled = a;
             result.up_to_date = b;
@@ -86,7 +91,16 @@ bool available() {
     return std::filesystem::is_regular_file(tool_path(), ec);
 }
 
-bool start(const std::filesystem::path& user_dir, std::string* error) {
+bool realesrgan_available() {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(texup::realesrgan::default_program(), ec);
+}
+
+std::vector<std::string> realesrgan_models() {
+    return texup::realesrgan::list_models(texup::realesrgan::default_program().parent_path() / "models");
+}
+
+bool start(const std::filesystem::path& user_dir, const std::string& method, const std::string& model, std::string* error) {
     if (g_running) return true;
     join_reader(); // the previous run's reader has finished: g_running is false
 
@@ -115,7 +129,8 @@ bool start(const std::filesystem::path& user_dir, std::string* error) {
     startup.StartupInfo.hStdError = write_end;
     startup.lpAttributeList = listed ? attributes : nullptr;
     std::wstring command = L"\"" + tool_path().wstring() + L"\" --progress --user-dir \"" +
-                           std::filesystem::absolute(user_dir).wstring() + L"\"";
+                           std::filesystem::absolute(user_dir).wstring() + L"\" --method " + utf8_path(method).wstring();
+    if (method == gfx::textures::kUpscalerRealEsrgan) command += L" --model " + utf8_path(model).wstring();
     PROCESS_INFORMATION info{};
     const DWORD flags = CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | (listed ? EXTENDED_STARTUPINFO_PRESENT : 0);
     const BOOL created = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags, nullptr, nullptr,

@@ -71,6 +71,14 @@ bool valid(u32 addr, u32 size) {
     return false;
 }
 
+u32 size_at(u32 addr) {
+    const u32 a = physical(addr);
+    if (a >= kRamBase && a < kRamBase + kRamSize) return kRamBase + kRamSize - a;
+    if (a >= kVramBase && a < kVramMirrorEnd) return kVramMirrorEnd - a;
+    if (a >= kScratchBase && a < kScratchBase + kScratchSize) return kScratchBase + kScratchSize - a;
+    return 0;
+}
+
 std::string read_string(u32 addr, u32 max) {
     std::string out;
     while (out.size() < max && valid(addr)) {

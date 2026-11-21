@@ -78,6 +78,8 @@ void (*g_screen)() = nullptr; // a full-window screen drawn instead of the menu 
 
 bool g_menu = false;
 int g_force_tab = -1;
+f32 g_force_scroll = -1.0f; // scroll the settings to this position (scripted runs)...
+int g_force_scroll_frames = 0; // ...for a few frames: the first ones do not know the content's height yet
 int g_binding = -1; // index of the button waiting for a key, or -1
 
 SlotDialog g_slots;
@@ -116,7 +118,8 @@ void check_upscale() {
     host::upscale::Result r;
     if (!host::upscale::take_result(&r)) return;
     if (r.upscaled) reload_pack();
-    if (!r.ok && r.upscaled == 0 && r.failed == 0) notify("Upscaling stopped before it finished.");
+    if (!r.message.empty()) notify(r.message);
+    else if (!r.ok && r.upscaled == 0 && r.failed == 0) notify("Upscaling stopped before it finished.");
     else if (r.upscaled == 0 && r.failed == 0) notify(r.up_to_date || r.kept ? "Every dumped texture is upscaled already." : "There are no dumped textures to upscale.");
     else if (r.failed) notify(format("Upscaled %u texture(s); %u could not be done.", r.upscaled, r.failed));
     else notify(format("Upscaled %u texture(s); they are in use now.", r.upscaled));
@@ -475,8 +478,68 @@ void video_tab() {
     if (ImGui::SmallButton("Reload")) notify(format("%zu replacement texture(s) found.", reload_pack()));
     ImGui::Indent();
     const size_t replacements = gfx::textures::replacement_count();
-    if (replacements) ImGui::TextDisabled("%zu replacement texture(s) in textures\\replace.", replacements);
+    if (replacements) ImGui::TextDisabled("%zu replacement texture(s) available.", replacements);
     else ImGui::TextDisabled("No texture pack: put one in textures\\replace in the user folder.");
+    ImGui::Unindent();
+
+    // Community packs, next to the program: they win over everything in textures\replace.
+    ImGui::BeginDisabled(!s.replace_textures);
+    if (ImGui::Checkbox("Use community texture packs", &s.community_packs)) changed();
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    const std::vector<gfx::textures::CommunityPack> packs = gfx::textures::community_packs();
+    if (!s.community_packs || !s.replace_textures) {
+        ImGui::TextDisabled("Hand-made and AI-upscaled packs made by players, drawn before anything else.");
+    } else if (packs.empty()) {
+        ImGui::TextDisabled("None installed: they go in the texturepacks folder next to the program.");
+    } else {
+        for (const gfx::textures::CommunityPack& p : packs)
+            ImGui::TextDisabled("%s, by %s (%s): %zu of its %zu texture(s) used so far.", p.name.c_str(),
+                                p.author.empty() ? "unknown" : p.author.c_str(), p.licence.empty() ? "licence not stated" : p.licence.c_str(),
+                                p.used, p.textures);
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
+    ImGui::EndDisabled();
+
+    // The upscaled set drawn (and made by the button below): one per method, kept side by side.
+    const bool realesrgan = host::upscale::realesrgan_available();
+    const char* const method_labels[2] = {"xBR (sharp pixel art, fast)", "Real-ESRGAN (AI, on the GPU)"};
+    const int method = s.upscaler == gfx::textures::kUpscalerRealEsrgan ? 1 : 0;
+    if (ImGui::BeginCombo("Upscaler", method_labels[method])) {
+        for (int m = 0; m < 2; ++m) {
+            ImGui::BeginDisabled(m == 1 && !realesrgan);
+            if (ImGui::Selectable(method_labels[m], m == method)) {
+                s.upscaler = m == 1 ? gfx::textures::kUpscalerRealEsrgan : gfx::textures::kUpscalerXbr;
+                changed();
+            }
+            ImGui::EndDisabled();
+            if (m == method) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (s.upscaler == gfx::textures::kUpscalerRealEsrgan) {
+        const std::vector<std::string> models = host::upscale::realesrgan_models();
+        if (ImGui::BeginCombo("Model", s.realesrgan_model.c_str())) {
+            for (const std::string& m : models) {
+                if (ImGui::Selectable(m.c_str(), m == s.realesrgan_model)) {
+                    s.realesrgan_model = m;
+                    changed();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    ImGui::Indent();
+    ImGui::PushTextWrapPos(0.0f);
+    if (!realesrgan)
+        ImGui::TextDisabled("Real-ESRGAN is not installed: it goes in the realesrgan folder next to the program.");
+    else if (s.upscaler == gfx::textures::kUpscalerRealEsrgan)
+        ImGui::TextDisabled("Detailed on drawn art; uses the graphics card, so the game may slow down while it works. "
+                            "realesrgan-x4plus-anime suits this game's art.");
+    else
+        ImGui::TextDisabled("Each method keeps its own set in textures\\replace\\upscaled: switching back needs no new upscaling.");
+    ImGui::PopTextWrapPos();
     ImGui::Unindent();
 
     bool dump = s.dump_textures || s.run_dump_textures;
@@ -497,10 +560,11 @@ void video_tab() {
 
     // The dumps made into a pack by p2texup.exe, in the background; the pack reloads when it is done.
     const bool tool = host::upscale::available(), busy = host::upscale::running();
-    ImGui::BeginDisabled(!tool || busy);
+    const bool method_ready = s.upscaler != gfx::textures::kUpscalerRealEsrgan || realesrgan;
+    ImGui::BeginDisabled(!tool || busy || !method_ready);
     if (ImGui::Button("Upscale dumped textures")) {
         std::string error;
-        if (!host::upscale::start(host::options().user_dir, &error)) notify(error);
+        if (!host::upscale::start(host::options().user_dir, s.upscaler, s.realesrgan_model, &error)) notify(error);
     }
     ImGui::EndDisabled();
     ImGui::Indent();
@@ -512,7 +576,7 @@ void video_tab() {
     } else if (!tool) {
         ImGui::TextDisabled("Needs p2texup.exe next to the program.");
     } else {
-        ImGui::TextDisabled("Makes 4x versions of the dumped textures in textures\\replace\\upscaled, in the background, "
+        ImGui::TextDisabled("Makes 4x versions of the dumped textures with the upscaler above, in the background, "
                             "and uses them. Textures done before are skipped, and so are those with a replacement "
                             "of your own.");
     }
@@ -613,6 +677,10 @@ void draw_menu() {
         const f32 footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
         ImGui::BeginChild("##tabs", ImVec2(0.0f, -footer));
         settings_tabs();
+        if (g_force_scroll_frames > 0) {
+            ImGui::SetScrollY(g_force_scroll * g_ui_scale);
+            --g_force_scroll_frames;
+        }
         ImGui::EndChild();
         ImGui::Separator();
         if (ImGui::Button("Resume")) open = false;
@@ -725,11 +793,19 @@ void apply_settings() {
     else host::set_window_size(s.window_width, s.window_height);
     if (!g_renderer) return;
 
-    // Texture packs: switching replacement on or off redraws every texture from scratch.
+    // Texture packs: switching replacement on or off, or which files it uses, redraws every texture
+    // from scratch.
+    static std::string applied_upscaler = s.upscaler;
+    static bool applied_community = s.community_packs;
+    const bool choice_changed = s.upscaler != applied_upscaler || s.community_packs != applied_community;
+    applied_upscaler = s.upscaler;
+    applied_community = s.community_packs;
     const bool was_replacing = gfx::textures::replacing();
+    gfx::textures::set_upscaler(s.upscaler);
+    gfx::textures::set_community(s.community_packs);
     gfx::textures::set_replacing(s.replace_textures);
     gfx::textures::set_dumping(s.dump_textures || s.run_dump_textures);
-    if (gfx::textures::replacing() != was_replacing) g_renderer->reload_textures();
+    if (gfx::textures::replacing() != was_replacing || (choice_changed && gfx::textures::replacing())) g_renderer->reload_textures();
     g_renderer->set_texture_pack_active(gfx::textures::dumping() || gfx::textures::replacing());
 
     g_renderer->set_vsync(s.vsync && !s.run_unthrottled);
@@ -813,10 +889,12 @@ void toggle_menu() {
     g_binding = -1;
 }
 
-void open_menu(int tab) {
+void open_menu(int tab, f32 scroll) {
     if (!g_active || g_screen) return;
     g_menu = true;
     g_force_tab = std::clamp(tab, 0, kTabCount - 1);
+    g_force_scroll = scroll;
+    g_force_scroll_frames = scroll >= 0.0f ? 3 : 0;
 }
 
 bool menu_open() { return g_active && g_menu; }
