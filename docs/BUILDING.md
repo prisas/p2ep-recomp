@@ -84,8 +84,9 @@ Fetched and built automatically, at versions pinned by `vcpkg-configuration.json
 | Dear ImGui | Settings menu and system dialogs | MIT |
 | libchdr | CHD image support | BSD-3-Clause |
 | stb | PNG reading and writing | MIT / public domain |
+| xxHash | Matching textures of community texture packs (PPSSPP's format) | BSD-2-Clause |
 
-FFmpeg and SDL are linked dynamically; their DLLs are placed next to the executable.
+FFmpeg, SDL and xxHash are linked dynamically; their DLLs are placed next to the executable.
 
 ## Package
 
@@ -100,6 +101,20 @@ Windows installation, and Microsoft's free "Visual C++ Redistributable" provides
 line, and the program refuses to run with an image whose executable is not the one it was built
 from. Because the program contains the translation of that executable, the package is for your
 own use, not for passing on.
+
+The package script also downloads two optional extras from their authors' pages, once, into
+`build\downloads` (each checked against a SHA-256 pinned in `scripts\downloads.ps1`):
+
+| Extra | Goes to | Size | Leave out with |
+|---|---|---|---|
+| Real-ESRGAN (realesrgan-ncnn-vulkan, 2022-04-24; MIT and BSD-3-Clause), the second texture upscaling method | `realesrgan\` | about 45 MB | `-NoRealEsrgan` |
+| Two community texture packs (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)) | `texturepacks\` | about 1.1 GB | `-NoCommunityPacks` |
+
+One of the packs is on MEGA, which encrypts its files; the script decrypts it with the key in its
+link and checks MEGA's integrity code. A failed download only leaves that extra out. Installed
+extras are kept when the package is made again, unless their pinned version changes.
+`third_party\CREDITS.md` lists their authors and licences; Real-ESRGAN's licence texts are copied
+into the package.
 
 ## Troubleshooting
 

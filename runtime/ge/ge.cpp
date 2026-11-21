@@ -521,6 +521,9 @@ void fill_draw_state(const State& s, DrawState& d) {
             u32 entries = t.format == kTexClut4 ? 16 : 256;
             u32 bytes = std::min<u32>((t.clut_base + entries) * (t.clut_format == 3 ? 4 : 2), sizeof(s.clut));
             t.clut_hash = hash_bytes(s.clut, bytes);
+            t.clut_format_reg = s.arg[kClutFormat] & 0xFFFFFF;
+            t.clut_load_bytes = s.clut_load_bytes;
+            t.clut_max_bytes = s.clut_max_bytes;
         }
     }
 }
@@ -737,7 +740,11 @@ void load_clut() {
     State& s = g_state;
     u32 addr = s.clut_addr();
     u32 bytes = std::min<u32>((s.arg[kLoadClut] & 0x3F) * 32, sizeof(s.clut));
-    if (bytes && mem::valid(addr, bytes)) std::memcpy(s.clut, mem::ptr(addr), bytes);
+    if (bytes) {
+        if (mem::valid(addr, bytes)) std::memcpy(s.clut, mem::ptr(addr), bytes);
+        s.clut_load_bytes = bytes;
+        s.clut_max_bytes = std::max(s.clut_max_bytes, bytes);
+    }
     ++s.clut_serial;
 }
 

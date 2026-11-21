@@ -23,7 +23,7 @@ part of this repository.
 | `lib/allegrex` | Instruction decoder and disassembler for the CPU, FPU and VFPU |
 | `tools/recomp` | `p2recomp`: analysis and C++ generation |
 | `tools/icon` | Build-time conversion of an image to the program's Windows icon |
-| `tools/texup` | `p2texup`: upscales dumped textures into a texture pack (FFmpeg xBR) |
+| `tools/texup` | `p2texup`: upscales dumped textures into a texture pack (FFmpeg xBR, or Real-ESRGAN run as a separate program) |
 | `runtime/cpu` | Guest CPU state, instruction semantics, services called by generated code |
 | `runtime/mem` | The guest address space |
 | `runtime/kernel` | Threads, scheduler, virtual clock, memory partitions, interrupts |
@@ -135,6 +135,13 @@ file found there is uploaded instead, at its own resolution. Files are read and 
 background thread, so neither stalls the game. Textures are dumped only once their pixels have
 stayed the same for several frames, and the movie player's picture buffers are excluded, which
 keeps animated surfaces out of the dump.
+
+Community packs made for PPSSPP name textures differently: by address, size, a hash of the palette
+and a hash of the texture's bytes in guest memory, under options in the pack's `textures.ini`.
+`runtime/gfx/ppsspp_pack` computes those names from the GE registers and memory (xxHash) and is
+asked first. To keep that cheap, only textures whose address-and-palette half of the name occurs in
+a pack have their data hashed. The upscaler's sets live in one subfolder per method, and only the
+chosen one is read.
 
 **Skipping the intro.** The game lets the player skip each start-up screen with Start and shows
 its main menu by itself once the opening movie is gone. With the setting on, the program presses

@@ -56,6 +56,27 @@ constexpr VkDeviceSize kIndexBufferSize = 12u << 20;
 constexpr VkDeviceSize kStagingSize = 32u << 20;
 constexpr u64 kTextureLifetimeFrames = 900;
 
+// What community packs (PPSSPP's format) name this texture by: its registers and guest memory.
+ppsspp::TextureInfo ppsspp_info(const TextureDesc& desc, const u8* clut) {
+    ppsspp::TextureInfo t;
+    t.addr = desc.addr;
+    t.format = desc.format;
+    t.width = desc.width;
+    t.height = desc.height;
+    t.buf_width = desc.buf_width;
+    t.data_size = mem::size_at(desc.addr);
+    t.data = t.data_size ? mem::ptr(desc.addr) : nullptr;
+    if (desc.format >= 4 && desc.format <= 7) {
+        // The emulator hashes the palette from its start: as far as the last load reaches, plus the
+        // offset of the entries this texture starts at, but no further than the largest load so far.
+        const u32 base_bytes = desc.clut_base * (desc.clut_format == 3 ? 4u : 2u);
+        t.clut = clut;
+        t.clut_bytes = std::min(desc.clut_load_bytes + base_bytes, desc.clut_max_bytes);
+        t.clut_format_reg = desc.clut_format_reg;
+    }
+    return t;
+}
+
 // Mirrors the push-constant block in the shaders.
 struct PushConstants {
     f32 pixel_to_ndc[2];
@@ -1055,7 +1076,9 @@ Texture* VulkanRenderer::get_texture(const TextureDesc& desc, const u8* clut) {
     u32 width = desc.width, height = desc.height;
     std::shared_ptr<const textures::Image> replacement;
     if (textures::replacing() && !textures::excluded(desc.addr)) {
-        const u64 id = textures::texture_id(decode_scratch_.data(), desc.width, desc.height);
+        // A community pack's file comes first; then the player's own files and the upscaled set.
+        u64 id = textures::community_id(ppsspp_info(desc, clut));
+        if (!id) id = textures::texture_id(decode_scratch_.data(), desc.width, desc.height);
         bool pending = false;
         replacement = textures::replacement(id, &pending);
         if (replacement) {

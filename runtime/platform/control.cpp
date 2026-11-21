@@ -6,6 +6,7 @@
 #include "runtime/kernel/kernel.h"
 #include "runtime/platform/frame.h"
 #include "runtime/platform/window.h"
+#include "runtime/ui/overlay.h"
 
 #include <algorithm>
 #include <chrono>
@@ -19,10 +20,12 @@ namespace p2::host::control {
 namespace {
 
 struct Command {
-    enum Kind { Hold, Wait, Shot, Quit, Trace, Untrace, Threads } kind = Wait;
+    enum Kind { Hold, Wait, Shot, Quit, Trace, Untrace, Threads, Menu } kind = Wait;
     u32 buttons = 0;
     u64 frames = 0;
     std::string text; // Trace: the channels
+    int tab = -1;          // Menu: the tab, or -1 to close the menu
+    f32 scroll = -1.0f;    // Menu: where to scroll the tab, or -1
 };
 
 bool g_active = false;
@@ -84,6 +87,11 @@ void parse(const std::string& text) {
             g_queue.push_back({Command::Untrace});
         } else if (verb == "threads") {
             g_queue.push_back({Command::Threads});
+        } else if (verb == "menu") { // menu <tab> [scroll]: open the settings menu (needs --overlay); "menu close" closes it
+            Command c{Command::Menu};
+            c.tab = a == "close" ? -1 : int(std::strtol(a.c_str(), nullptr, 10));
+            if (!b.empty()) c.scroll = std::strtof(b.c_str(), nullptr);
+            g_queue.push_back(c);
         } else {
             LOG_WARN("control", "unknown command '%s'", line.c_str());
         }
@@ -139,6 +147,15 @@ bool before_frame(u64 frame) {
         if (c.kind == Command::Threads) {
             LOG_WARN("control", "guest threads at frame %llu:", static_cast<unsigned long long>(frame));
             kernel::dump_state();
+            g_queue.pop_front();
+            continue;
+        }
+        if (c.kind == Command::Menu) {
+            if (c.tab < 0) {
+                if (ui::menu_open()) ui::toggle_menu();
+            } else {
+                ui::open_menu(c.tab, c.scroll);
+            }
             g_queue.pop_front();
             continue;
         }

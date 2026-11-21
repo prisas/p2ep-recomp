@@ -303,7 +303,7 @@ int wmain(int argc, wchar_t** wargv) {
     settings.run_dump_textures = dump_textures;
     settings.run_window_width = window_w;
     settings.run_window_height = window_h;
-    gfx::textures::init(opt.user_dir);
+    gfx::textures::init(opt.user_dir, program_folder() / "texturepacks");
     settings.run_unthrottled = opt.unthrottled;
     if (fullscreen) settings.fullscreen = true;
 

@@ -35,7 +35,8 @@ bool captures_pad();
 
 // The settings menu. While it is open the game is paused.
 void toggle_menu();
-void open_menu(int tab);
+// `scroll`: a position to scroll the tab to (in unscaled pixels), or -1 to leave it.
+void open_menu(int tab, f32 scroll = -1.0f);
 bool menu_open();
 
 // Per-frame statistics for the performance display.

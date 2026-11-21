@@ -27,6 +27,8 @@ bool init(std::string* error);
 
 // True when [addr, addr + size) lies entirely inside mapped guest memory.
 bool valid(u32 addr, u32 size = 1);
+// How many bytes can be read from `addr` before the mapped region it is in ends (0 if unmapped).
+u32 size_at(u32 addr);
 
 // Strips the segment bits, giving the address inside the 0x00000000-0x3FFFFFFF mirror.
 P2_INLINE u32 physical(u32 addr) { return addr & 0x3FFFFFFFu; }

@@ -6,6 +6,7 @@
 #include <SDL3/SDL_scancode.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -78,6 +79,11 @@ void load_settings(const std::filesystem::path& file) {
         else if (key == "show_fps") s.show_fps = n != 0;
         else if (key == "replace_textures") s.replace_textures = n != 0;
         else if (key == "dump_textures") s.dump_textures = n != 0;
+        else if (key == "community_packs") s.community_packs = n != 0;
+        else if (key == "upscaler" && (value == "xbr" || value == "realesrgan")) s.upscaler = value;
+        else if (key == "realesrgan_model" &&
+                 std::all_of(value.begin(), value.end(), [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_' || ch == '.'; }))
+            s.realesrgan_model = value;
         else if (key == "volume") s.volume = std::min<u32>(n, 100);
         else if (key == "reverb") s.reverb = n != 0;
         else if (key == "turbo_speed") s.turbo_speed = std::min<u32>(n, 16);
@@ -106,6 +112,9 @@ bool save_settings() {
     append_format(out, "show_fps = %u\n", u32(s.show_fps));
     append_format(out, "replace_textures = %u\n", u32(s.replace_textures));
     append_format(out, "dump_textures = %u\n", u32(s.dump_textures));
+    append_format(out, "community_packs = %u\n", u32(s.community_packs));
+    out += "upscaler = " + s.upscaler + "\n";
+    out += "realesrgan_model = " + s.realesrgan_model + "\n";
     append_format(out, "volume = %u\n", s.volume);
     append_format(out, "reverb = %u\n", u32(s.reverb));
     append_format(out, "turbo_speed = %u\n", s.turbo_speed);
