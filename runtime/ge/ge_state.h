@@ -58,8 +58,11 @@ struct State {
     f32 proj[16] = {};      // 4x4
     f32 tgen[12] = {};
     f32 bone[8 * 12] = {};
-    u8 clut[1024] = {};     // palette as loaded by the last LOADCLUT
-    u32 clut_serial = 0;    // bumped on every LOADCLUT
+    // The palette buffer: each LOADCLUT overwrites its first bytes, the rest keep older entries.
+    u8 clut[1024] = {};
+    u32 clut_serial = 0;     // bumped on every LOADCLUT
+    u32 clut_load_bytes = 0; // size of the last LOADCLUT (one that loads nothing does not count)
+    u32 clut_max_bytes = 0;  // the largest LOADCLUT so far
 
     // --- vertices ---
     u32 vtype() const { return arg[kVtype]; }

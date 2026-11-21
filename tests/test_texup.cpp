@@ -1,4 +1,5 @@
 #include "tests/test.h"
+#include "tools/texup/realesrgan.h"
 #include "tools/texup/texture_ops.h"
 #include "tools/texup/upscaler.h"
 
@@ -115,4 +116,55 @@ TEST(texup_upscale_scales_and_keeps_opaque) {
     CHECK(opaque);
     settings.scale = 5;
     CHECK(!texup::upscale(image, settings, out, &error));
+}
+
+TEST(texup_method_names) {
+    texup::Method m = texup::Method::Xbr;
+    CHECK(texup::parse_method("realesrgan", &m));
+    CHECK(m == texup::Method::RealEsrgan);
+    CHECK_EQ(std::string(texup::method_name(m)), std::string("realesrgan"));
+    CHECK(texup::parse_method("xbr", &m));
+    CHECK(m == texup::Method::Xbr);
+    CHECK(!texup::parse_method("bicubic", &m));
+}
+
+TEST(texup_resize_and_alpha) {
+    Rgba image = blank(8, 4);
+    for (u32 y = 0; y < 4; ++y)
+        for (u32 x = 0; x < 8; ++x) put(image, x, y, 200, 100, 50, 255);
+    texup::Rgba out;
+    std::string error;
+    CHECK(texup::resize(image, 16, 8, out, &error));
+    CHECK_EQ(out.width, 16u);
+    CHECK_EQ(out.height, 8u);
+    CHECK_EQ(at(out, 7, 3)[3], 255); // resizing gives an opaque picture
+    std::vector<u8> alpha;
+    u32 w = 0, h = 0;
+    CHECK(texup::upscale_alpha(sprite(), 4, alpha, w, h, &error));
+    CHECK_EQ(w, 64u);
+    CHECK_EQ(h, 64u);
+    CHECK_EQ(alpha[(size_t(32) * 64 + 32) * 4], 255); // inside the square
+    CHECK_EQ(alpha[0], 0);                            // outside
+}
+
+TEST(texup_realesrgan_helpers) {
+    using namespace texup::realesrgan;
+    CHECK_EQ(native_scale("realesr-animevideov3", 2), 2u);
+    CHECK_EQ(native_scale("realesr-animevideov3", 3), 3u);
+    CHECK_EQ(native_scale("realesrgan-x4plus-anime", 2), 4u);
+    CHECK_EQ(native_scale("realesrgan-x4plus", 4), 4u);
+    const std::wstring cmd = command_line(L"C:\\r\\realesrgan-ncnn-vulkan.exe", L"C:\\in", L"C:\\out", "realesrgan-x4plus-anime", 2);
+    CHECK(cmd.find(L"-i \"C:\\in\"") != std::wstring::npos);
+    CHECK(cmd.find(L"-o \"C:\\out\"") != std::wstring::npos);
+    CHECK(cmd.find(L"-m \"C:\\r\\models\"") != std::wstring::npos);
+    CHECK(cmd.find(L"-n realesrgan-x4plus-anime -s 4 -f png") != std::wstring::npos);
+
+    // An all-black result is a failure only when the source had something other than black.
+    Rgba green = sprite(), dark = blank(16, 16), black = blank(64, 64);
+    for (size_t i = 3; i < dark.pixels.size(); i += 4) dark.pixels[i] = 255;
+    CHECK(black_result(green, black));
+    CHECK(!black_result(dark, black));
+    Rgba lit = black;
+    put(lit, 10, 10, 90, 90, 90, 255);
+    CHECK(!black_result(green, lit));
 }

@@ -35,6 +35,9 @@ struct Settings {
     bool show_fps = false;
     bool replace_textures = true; // draw with a texture pack's files where there are any
     bool dump_textures = false;   // write each texture the game uses to the dump folder
+    bool community_packs = true;  // with replacement on, also draw with the community packs next to the program
+    std::string upscaler = "xbr"; // upscaled set drawn and made by the upscaler: "xbr" or "realesrgan"
+    std::string realesrgan_model = "realesrgan-x4plus-anime";
 
     // audio
     u32 volume = 100;           // percent

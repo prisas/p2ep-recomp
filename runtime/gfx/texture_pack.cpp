@@ -10,6 +10,7 @@
 #include <stb_image.h>
 #pragma clang diagnostic pop
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -28,8 +29,9 @@ constexpr size_t kMaxQueuedDumps = 512;            // beyond this, dumps wait fo
 constexpr size_t kLoadedBudget = size_t(768) << 20; // decoded replacements kept in memory
 constexpr u32 kMaxReplacementSide = 8192;
 
-std::filesystem::path g_dump_dir, g_replace_dir;
-bool g_dumping = false, g_replacing = false;
+std::filesystem::path g_dump_dir, g_replace_dir, g_packs_dir;
+bool g_dumping = false, g_replacing = false, g_community = true;
+std::string g_upscaler = kUpscalerXbr;
 
 // --- background work: replacements are loaded before dumps are written --------------------------------
 
@@ -96,6 +98,50 @@ bool parse_id(const std::filesystem::path& file, u64* id) {
 
 std::unordered_map<u64, std::filesystem::path> g_index; // touched only by the game's thread
 
+// Community packs. Their files get IDs of their own (from the PPSSPP key), kept apart from g_index.
+std::vector<ppsspp::Pack> g_packs;
+std::unordered_map<u64, std::filesystem::path> g_community_files;
+std::vector<std::unordered_set<u64>> g_community_used; // per pack: IDs used since start-up
+std::unordered_map<std::string, std::pair<u32, u32>> g_png_sizes;
+struct CommunityStats {
+    u64 checked = 0, hits = 0;
+} g_stats;
+
+u64 community_file_id(const ppsspp::Key& key) {
+    u64 h = key.cache_key * 0x9E3779B97F4A7C15ull ^ (u64(key.hash) << 1 | 1);
+    h ^= h >> 29;
+    return h ? h : 1;
+}
+
+std::pair<u32, u32> png_size_cached(const std::filesystem::path& file) {
+    auto [it, added] = g_png_sizes.try_emplace(file.string());
+    if (added) it->second = ppsspp::png_size(file);
+    return it->second;
+}
+
+void load_community_packs() {
+    g_packs.clear();
+    g_community_files.clear();
+    g_community_used.clear();
+    std::error_code ec;
+    if (!g_community || g_packs_dir.empty() || !std::filesystem::is_directory(g_packs_dir, ec)) return;
+    std::vector<std::filesystem::path> folders;
+    for (const auto& entry : std::filesystem::directory_iterator(g_packs_dir, ec))
+        if (entry.is_directory(ec)) folders.push_back(entry.path());
+    std::sort(folders.begin(), folders.end());
+    for (const std::filesystem::path& folder : folders) {
+        ppsspp::Pack pack;
+        std::string error;
+        if (!ppsspp::load_pack(folder, &pack, &error)) {
+            LOG_WARN("textures", "community pack %s not used: %s", path_utf8(folder).c_str(), error.c_str());
+            continue;
+        }
+        LOG_INFO("textures", "community pack \"%s\": %zu texture(s)", pack.name.c_str(), pack.files.size());
+        g_packs.push_back(std::move(pack));
+    }
+    g_community_used.resize(g_packs.size());
+}
+
 struct Loaded {
     std::shared_ptr<const Image> image; // null while loading, or after a failed load
     bool failed = false;
@@ -149,9 +195,10 @@ void forget_loaded() {
 
 } // namespace
 
-void init(const std::filesystem::path& user_dir) {
+void init(const std::filesystem::path& user_dir, const std::filesystem::path& packs_dir) {
     g_dump_dir = user_dir / "textures" / "dump";
     g_replace_dir = user_dir / "textures" / "replace";
+    g_packs_dir = packs_dir;
 }
 
 void shutdown() {
@@ -164,6 +211,12 @@ void shutdown() {
     if (g_worker.joinable()) g_worker.join();
     if (g_dumped_count) LOG_INFO("textures", "%llu texture(s) dumped to %s", static_cast<unsigned long long>(g_dumped_count),
                                  g_dump_dir.string().c_str());
+    for (size_t i = 0; i < g_packs.size(); ++i)
+        LOG_INFO("textures", "community pack \"%s\": %zu of its %zu texture(s) used", g_packs[i].name.c_str(),
+                 g_community_used[i].size(), g_packs[i].files.size());
+    if (g_stats.checked)
+        LOG_INFO("textures", "community packs: %llu texture(s) checked, %llu matched", static_cast<unsigned long long>(g_stats.checked),
+                 static_cast<unsigned long long>(g_stats.hits));
 }
 
 std::filesystem::path dump_folder() { return g_dump_dir; }
@@ -236,38 +289,91 @@ void set_replacing(bool on) {
     if (on) rescan();
 }
 
-bool replacing() { return g_replacing && !g_index.empty(); }
+bool replacing() { return g_replacing && (!g_index.empty() || !g_packs.empty()); }
+
+void set_upscaler(const std::string& method) {
+    if (method == g_upscaler) return;
+    g_upscaler = method;
+    if (g_replacing) rescan();
+}
+
+void set_community(bool on) {
+    if (on == g_community) return;
+    g_community = on;
+    if (g_replacing) rescan();
+}
 
 size_t rescan() {
     g_index.clear();
     forget_loaded();
+    load_community_packs();
     std::error_code ec;
     std::filesystem::create_directories(g_replace_dir, ec);
-    // Two files with the same name: one made by hand wins over the upscaler's (kUpscaledFolder).
+    // Two files with the same name: one made by hand wins over the upscaler's (kUpscaledFolder), and
+    // of the upscaler's sets only the chosen method's is used.
     const std::filesystem::path generated = g_replace_dir / kUpscaledFolder;
     auto made_by_upscaler = [&](const std::filesystem::path& file) {
         const std::filesystem::path relative = file.lexically_relative(generated);
         return !relative.empty() && *relative.begin() != "..";
     };
-    for (auto it = std::filesystem::recursive_directory_iterator(g_replace_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator();
-         it.increment(ec)) {
+    // Linked folders (junctions, symbolic links) are followed: a pack can live elsewhere.
+    constexpr auto kFollow = std::filesystem::directory_options::follow_directory_symlink |
+                             std::filesystem::directory_options::skip_permission_denied;
+    for (auto it = std::filesystem::recursive_directory_iterator(g_replace_dir, kFollow, ec);
+         !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         u64 id;
+        if (it.depth() > 8) it.disable_recursion_pending(); // a link back up would never end
         if (!it->is_regular_file(ec) || !parse_id(it->path(), &id)) continue;
+        const bool generated_file = made_by_upscaler(it->path());
+        if (generated_file && upscaler_of(it->path().lexically_relative(generated)) != g_upscaler) continue;
         auto [entry, added] = g_index.try_emplace(id, it->path());
-        if (!added && made_by_upscaler(entry->second) && !made_by_upscaler(it->path())) entry->second = it->path();
+        if (!added && made_by_upscaler(entry->second) && !generated_file) entry->second = it->path();
     }
     if (!g_index.empty()) LOG_INFO("textures", "%zu replacement texture(s) in %s", g_index.size(), g_replace_dir.string().c_str());
-    return g_index.size();
+    size_t community = 0;
+    for (const ppsspp::Pack& pack : g_packs) community += pack.files.size();
+    return g_index.size() + community;
 }
 
-size_t replacement_count() { return g_index.size(); }
+size_t replacement_count() {
+    size_t count = g_index.size();
+    for (const ppsspp::Pack& pack : g_packs) count += pack.files.size();
+    return count;
+}
 
-bool has_replacement(u64 id) { return g_replacing && g_index.count(id) != 0; }
+bool has_replacement(u64 id) { return g_replacing && (g_index.count(id) != 0 || g_community_files.count(id) != 0); }
+
+std::vector<CommunityPack> community_packs() {
+    std::vector<CommunityPack> out;
+    for (size_t i = 0; i < g_packs.size(); ++i)
+        out.push_back({g_packs[i].name, g_packs[i].author, g_packs[i].licence, g_packs[i].files.size(),
+                       g_community_used[i].size()});
+    return out;
+}
+
+u64 community_id(const ppsspp::TextureInfo& tex) {
+    if (!g_replacing || g_packs.empty()) return 0;
+    ++g_stats.checked;
+    const auto match = ppsspp::find(g_packs, tex, png_size_cached);
+    if (!match) return 0;
+    ++g_stats.hits;
+    const u64 id = community_file_id(match->key);
+    g_community_files.try_emplace(id, *match->file);
+    const size_t pack = size_t(match->pack - g_packs.data());
+    if (g_community_used[pack].insert(id).second)
+        LOG_CH("texpack", "hit %s: %s (%s)", ppsspp::key_name(match->key).c_str(), path_utf8(*match->file).c_str(),
+               match->pack->name.c_str());
+    return id;
+}
 
 std::shared_ptr<const Image> replacement(u64 id, bool* pending) {
     *pending = false;
     auto file = g_index.find(id);
-    if (!g_replacing || file == g_index.end()) return nullptr;
+    if (file == g_index.end()) {
+        file = g_community_files.find(id);
+        if (file == g_community_files.end()) return nullptr;
+    }
+    if (!g_replacing) return nullptr;
     std::lock_guard lock(g_mutex);
     auto it = g_loaded.find(id);
     if (it != g_loaded.end()) {

@@ -8,6 +8,7 @@ find_package(volk CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(FFMPEG REQUIRED)
+find_package(xxHash CONFIG REQUIRED)
 find_program(GLSLANG_EXECUTABLE NAMES glslang glslangValidator
     HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/glslang" REQUIRED)
 
@@ -55,6 +56,7 @@ add_executable(p2ep
     game/tweaks.cpp
     ge/ge.cpp
     ge/ge_texture.cpp
+    gfx/ppsspp_pack.cpp
     gfx/texture_pack.cpp
     gfx/vk/vk_renderer.cpp
     hle/hle_atrac.cpp
@@ -80,6 +82,8 @@ add_executable(p2ep
     platform/window.cpp
     ui/launcher.cpp
     ui/overlay.cpp
+    # Where Real-ESRGAN is and which models it has, shared with the upscaler (it only reads folders).
+    "${CMAKE_SOURCE_DIR}/tools/texup/realesrgan.cpp"
     ${shader_headers}
     $<TARGET_OBJECTS:p2_game_code>)
 add_dependencies(p2ep p2_game_code_generate)
@@ -149,7 +153,7 @@ target_include_directories(p2ep PRIVATE
 target_link_directories(p2ep PRIVATE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(p2ep PRIVATE
     p2_common p2_disc p2_psp p2_imgui
-    SDL3::SDL3 Vulkan::Headers volk::volk GPUOpen::VulkanMemoryAllocator ${FFMPEG_LIBRARIES})
+    SDL3::SDL3 Vulkan::Headers volk::volk GPUOpen::VulkanMemoryAllocator xxHash::xxhash ${FFMPEG_LIBRARIES})
 if(P2EP_LTO)
     # The linker recognises the bitcode objects on its own; only the compiler needs the flag.
     target_compile_options(p2ep PRIVATE /clang:-flto=thin)

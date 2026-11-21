@@ -16,6 +16,8 @@
 //   quit                       end the run
 //   trace <channels>           switch log channels on (hle, thread, io, ...), untrace switches them off
 //   threads                    log every guest thread: state, priority, what it waits on
+//   menu <tab> [y] | menu close  open the settings menu at a tab (0 General, 1 Video, ...), scrolled
+//                              to y if given, or close it; needs --overlay when headless
 //
 // Buttons are up, down, left, right, cross, circle, square, triangle, l, r, start and select,
 // joined with '+' (for example up+right).

@@ -66,9 +66,11 @@ tabs are General, Video, Audio, Controls and Help; the launcher shows the same o
 | Full screen | Borderless full screen on the current display. |
 | Vertical sync | Present in step with the display. Off removes the display's latency at the cost of tearing. |
 | Show performance | A small display of frame rate, speed, frame time and rendering resolution. |
-| Use replacement textures | On by default. Draw with the files of a texture pack in `textures\replace` wherever there is one; *Reload* reads the folder again. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
+| Use replacement textures | On by default. Draw with the files of a texture pack wherever there is one; *Reload* reads the folders again. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
+| Use community texture packs | On by default. Also draw with the community packs in `texturepacks` next to the program, before anything else. The settings list each pack with its author and licence. |
+| Upscaler | xBR (default) or Real-ESRGAN: which upscaled set the game draws with, and which method *Upscale dumped textures* uses. Each method keeps its own set. Real-ESRGAN needs the `realesrgan` folder next to the program; with it chosen, *Model* picks its model. |
 | Dump textures | Off by default. Write each texture the game draws with to `textures\dump`, once, as PNG: the starting point for a texture pack. |
-| Upscale dumped textures | Runs the built-in upscaler (`p2texup.exe`) in the background: 4x versions of the dumps go to `textures\replace\upscaled`, and the game uses them when it is done. Textures done before, and textures with a replacement of your own, are skipped. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
+| Upscale dumped textures | Runs the built-in upscaler (`p2texup.exe`) in the background with the chosen method: 4x versions of the dumps go to `textures\replace\upscaled\<method>`, and the game uses them when it is done. Textures done before, and textures with a replacement of your own, are skipped. See [TEXTURE_PACKS.md](TEXTURE_PACKS.md). |
 | Volume | Output volume. |
 | Reverb on sound effects | Off by default. When on, the echo the game puts on its sound effects in some places is added, with the program's approximation of the console's reverb. |
 | Fast-forward speed | How fast the game runs while fast-forward is held: unlimited, or 2x to 8x. |
@@ -103,7 +105,7 @@ The user folder holds:
 |---|---|
 | `ms0\PSP\SAVEDATA\` | Saves, one folder per slot, as plain files with a description and picture. |
 | `settings.ini` | Settings, and the disc image last chosen in the launcher. |
-| `textures\dump\`, `textures\replace\` | Dumped textures and your texture pack (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)). |
+| `textures\dump\`, `textures\replace\` | Dumped textures, your texture pack and the upscaled sets (see [TEXTURE_PACKS.md](TEXTURE_PACKS.md)). |
 | `cache\pipelines.bin` | The graphics driver's compiled render states, so later runs start without hitches. Safe to delete. |
 
 ## Options for testing and debugging

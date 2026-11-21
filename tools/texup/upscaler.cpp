@@ -99,6 +99,31 @@ bool run_filters(const std::vector<u8>& bgr0, u32 width, u32 height, const std::
     return true;
 }
 
+const char* method_name(Method method) { return method == Method::RealEsrgan ? "realesrgan" : "xbr"; }
+
+bool parse_method(const std::string& name, Method* method) {
+    if (name == "xbr") *method = Method::Xbr;
+    else if (name == "realesrgan") *method = Method::RealEsrgan;
+    else return false;
+    return true;
+}
+
+bool upscale_alpha(const Rgba& in, u32 scale, std::vector<u8>& alpha, u32& width, u32& height, std::string* error) {
+    // Not sharpened: it stays a clean outline.
+    return run_filters(alpha_bgr0(in), in.width, in.height, format("xbr=n=%u,format=bgr0", scale), alpha, width, height, error);
+}
+
+bool resize(const Rgba& in, u32 width, u32 height, Rgba& out, std::string* error) {
+    std::vector<u8> color;
+    u32 w = 0, h = 0;
+    if (!run_filters(color_bgr0(in), in.width, in.height, format("scale=%u:%u:flags=lanczos,format=bgr0", width, height), color, w, h,
+                     error))
+        return false;
+    if (w != width || h != height) return fail(error, "the resized picture has the wrong size");
+    out = merge_bgr0(w, h, color, nullptr);
+    return true;
+}
+
 bool upscale(const Rgba& in, const Settings& settings, Rgba& out, std::string* error) {
     if (settings.scale < 2 || settings.scale > 4) return fail(error, "the scale must be 2, 3 or 4");
     const bool transparent = has_transparency(in);
@@ -112,9 +137,7 @@ bool upscale(const Rgba& in, const Settings& settings, Rgba& out, std::string* e
     u32 w = 0, h = 0, aw = 0, ah = 0;
     if (!run_filters(color_bgr0(prepared), in.width, in.height, chain, color, w, h, error)) return false;
     if (transparent) {
-        // Alpha is not sharpened: it stays a clean outline.
-        if (!run_filters(alpha_bgr0(in), in.width, in.height, format("xbr=n=%u,format=bgr0", settings.scale), alpha, aw, ah, error))
-            return false;
+        if (!upscale_alpha(in, settings.scale, alpha, aw, ah, error)) return false;
         if (aw != w || ah != h) return fail(error, "colour and alpha came out at different sizes");
     }
     out = merge_bgr0(w, h, color, transparent ? &alpha : nullptr);

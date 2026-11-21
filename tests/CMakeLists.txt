@@ -7,8 +7,11 @@ add_executable(p2_tests
     test_disc.cpp
     test_psp.cpp
     test_texup.cpp
-    "${CMAKE_SOURCE_DIR}/runtime/audio/reverb.cpp")
-target_link_libraries(p2_tests PRIVATE p2_common p2_disc p2_psp p2_allegrex p2_texup)
+    test_texture_packs.cpp
+    "${CMAKE_SOURCE_DIR}/runtime/audio/reverb.cpp"
+    "${CMAKE_SOURCE_DIR}/runtime/gfx/ppsspp_pack.cpp")
+find_package(xxHash CONFIG REQUIRED)
+target_link_libraries(p2_tests PRIVATE p2_common p2_disc p2_psp p2_allegrex p2_texup xxHash::xxhash)
 
 add_test(NAME unit COMMAND p2_tests)
 
